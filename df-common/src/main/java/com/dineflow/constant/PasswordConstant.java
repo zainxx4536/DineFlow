@@ -1,7 +1,7 @@
 package com.dineflow.constant;
 
 /**
- * 密码常量
+ * 默认密码常量
  */
 public class PasswordConstant {
 

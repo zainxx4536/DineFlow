@@ -1,5 +1,6 @@
 package com.dineflow.entity;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +15,7 @@ import java.io.Serializable;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("dish_flavor")
 public class DishFlavor implements Serializable {
 
     private static final long serialVersionUID = 1L;

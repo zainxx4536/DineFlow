@@ -6,7 +6,6 @@ import java.io.Serializable;
 
 /**
  * 后端统一返回结果
- * @param <T>
  */
 @Data
 public class Result<T> implements Serializable {
@@ -29,7 +28,7 @@ public class Result<T> implements Serializable {
     }
 
     public static <T> Result<T> error(String msg) {
-        Result result = new Result();
+        Result<T> result = new Result<>();
         result.msg = msg;
         result.code = 0;
         return result;

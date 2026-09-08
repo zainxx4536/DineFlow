@@ -1,5 +1,6 @@
 package com.dineflow.entity;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,6 +16,7 @@ import java.math.BigDecimal;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("setmeal_dish")
 public class SetmealDish implements Serializable {
 
     private static final long serialVersionUID = 1L;

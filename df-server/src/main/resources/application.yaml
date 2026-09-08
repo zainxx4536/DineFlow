@@ -4,23 +4,31 @@ server:
 spring:
   profiles:
     active: dev
-  main:
-    allow-circular-references: true
   datasource:
-    druid:
-      driver-class-name: ${dineflow.datasource.driver-class-name}
-      url: jdbc:mysql://${dineflow.datasource.host}:${dineflow.datasource.port}/${dineflow.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
-      username: ${dineflow.datasource.username}
-      password: ${dineflow.datasource.password}
+    driver-class-name: ${dineflow.datasource.driver-class-name}
+    url: jdbc:mysql://${dineflow.datasource.host}:${dineflow.datasource.port}/${dineflow.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${dineflow.datasource.username}
+    password: ${dineflow.datasource.password}
 
-mybatis:
-  #mapper配置文件
+# mybatis-plus 配置
+mybatis-plus:
+  # Mapper.xml 文件地址，默认值
   mapper-locations: classpath:mapper/*.xml
+  # 扫描包别名，扫描实体类
   type-aliases-package: com.dineflow.entity
   configuration:
-    #开启驼峰命名
+    # 开启驼峰映射
     map-underscore-to-camel-case: true
+    # 开启二级缓存
+    cache-enabled: false
+  global-config:
+    db-config:
+      # 主键自增
+      id-type: auto
+      # 更新策略，只更新非空字段
+      update-strategy: not_null
 
+# 日志配置
 logging:
   level:
     com:
@@ -29,7 +37,7 @@ logging:
         service: info
         controller: info
 
-sky:
+dineflow:
   jwt:
     # 设置jwt签名加密时使用的秘钥
     admin-secret-key: itzainxx

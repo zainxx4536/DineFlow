@@ -1,5 +1,8 @@
 package com.dineflow.exception;
 
+/**
+ * 用户未登录异常
+ */
 public class UserNotLoginException extends BaseException {
 
     public UserNotLoginException() {

@@ -1,7 +1,7 @@
 package com.dineflow.constant;
 
 /**
- * 状态常量，启用或者禁用
+ * 商户状态常量，启用或者禁用
  */
 public class StatusConstant {
 

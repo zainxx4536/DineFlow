@@ -1,5 +1,6 @@
 package com.dineflow.entity;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("shopping_cart")
 public class ShoppingCart implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -24,6 +26,9 @@ public class ShoppingCart implements Serializable {
 
     //名称
     private String name;
+
+    //图片
+    private String image;
 
     //用户id
     private Long userId;
@@ -42,9 +47,6 @@ public class ShoppingCart implements Serializable {
 
     //金额
     private BigDecimal amount;
-
-    //图片
-    private String image;
 
     private LocalDateTime createTime;
 }

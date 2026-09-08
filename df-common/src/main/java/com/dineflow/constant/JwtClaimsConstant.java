@@ -1,5 +1,8 @@
 package com.dineflow.constant;
 
+/**
+ * Token 中包含信息相关常量
+ */
 public class JwtClaimsConstant {
 
     public static final String EMP_ID = "empId";

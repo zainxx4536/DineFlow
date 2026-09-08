@@ -1,5 +1,6 @@
 package com.dineflow.entity;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,6 +16,7 @@ import java.math.BigDecimal;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("order_detail")
 public class OrderDetail implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -23,6 +25,9 @@ public class OrderDetail implements Serializable {
 
     //名称
     private String name;
+
+    //图片
+    private String image;
 
     //订单id
     private Long orderId;
@@ -41,7 +46,4 @@ public class OrderDetail implements Serializable {
 
     //金额
     private BigDecimal amount;
-
-    //图片
-    private String image;
 }

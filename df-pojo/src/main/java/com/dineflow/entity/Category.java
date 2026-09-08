@@ -1,5 +1,6 @@
 package com.dineflow.entity;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +12,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("category")
 public class Category implements Serializable {
 
     private static final long serialVersionUID = 1L;

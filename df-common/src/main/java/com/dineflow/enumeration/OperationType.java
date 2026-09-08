@@ -1,7 +1,7 @@
 package com.dineflow.enumeration;
 
 /**
- * 数据库操作类型
+ * 数据库操作类型枚举
  */
 public enum OperationType {
 

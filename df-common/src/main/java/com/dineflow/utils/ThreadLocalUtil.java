@@ -1,6 +1,6 @@
-package com.dineflow.context;
+package com.dineflow.utils;
 
-public class BaseContext {
+public class ThreadLocalUtil {
 
     public static ThreadLocal<Long> threadLocal = new ThreadLocal<>();
 
