@@ -1,6 +1,7 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
 import com.dineflow.entity.Employee;
 import com.dineflow.vo.EmployeeLoginVO;
@@ -16,4 +17,6 @@ import com.dineflow.vo.EmployeeLoginVO;
 public interface IEmployeeService extends IService<Employee> {
 
     EmployeeLoginVO login(EmployeeLoginDTO employeeLoginDTO);
+
+    void addEmployee(EmployeeDTO employeeDTO);
 }

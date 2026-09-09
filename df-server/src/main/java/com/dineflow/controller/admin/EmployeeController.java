@@ -1,6 +1,7 @@
 package com.dineflow.controller.admin;
 
 
+import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
 import com.dineflow.result.Result;
 import com.dineflow.service.IEmployeeService;
@@ -32,6 +33,9 @@ public class EmployeeController {
 
     private final IEmployeeService employeeService;
 
+    /**
+     * 员工登录
+     */
     @PostMapping("/login")
     @ApiOperation("员工登录")
     public Result<EmployeeLoginVO> login(@RequestBody EmployeeLoginDTO employeeLoginDTO) {
@@ -39,5 +43,17 @@ public class EmployeeController {
         //将请求数据传入业务层进行处理
         EmployeeLoginVO employeeLoginVO = employeeService.login(employeeLoginDTO);
         return Result.success(employeeLoginVO);
+    }
+
+    /**
+     * 新增员工
+     */
+    @PostMapping
+    @ApiOperation("新增员工")
+    public Result<String> addEmployee(@RequestBody EmployeeDTO employeeDTO){
+        log.info("新增员工：{}", employeeDTO);
+        //将请求数据传入业务层进行处理
+        employeeService.addEmployee(employeeDTO);
+        return Result.success();
     }
 }

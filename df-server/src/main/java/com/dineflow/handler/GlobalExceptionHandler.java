@@ -29,7 +29,7 @@ public class GlobalExceptionHandler {
      * 捕获新增员工时用户名相同的异常
      */
     @ExceptionHandler
-    public Result exceptionHandler(SQLIntegrityConstraintViolationException ex) {
+    public Result<String> exceptionHandler(SQLIntegrityConstraintViolationException ex) {
         //错误信息示例：Duplicate entry 'zhangsan' for key 'employee.idx_username'
         String message = ex.getMessage();
         if (message.contains("Duplicate entry")) {

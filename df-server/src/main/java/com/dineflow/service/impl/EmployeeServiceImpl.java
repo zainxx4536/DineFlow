@@ -1,9 +1,12 @@
 package com.dineflow.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.JwtClaimsConstant;
 import com.dineflow.constant.MessageConstant;
+import com.dineflow.constant.PasswordConstant;
 import com.dineflow.constant.StatusConstant;
+import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
 import com.dineflow.entity.Employee;
 import com.dineflow.exception.AccountLockedException;
@@ -13,11 +16,13 @@ import com.dineflow.mapper.EmployeeMapper;
 import com.dineflow.properties.JwtProperties;
 import com.dineflow.service.IEmployeeService;
 import com.dineflow.utils.JwtUtil;
+import com.dineflow.utils.ThreadLocalUtil;
 import com.dineflow.vo.EmployeeLoginVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Objects;
 
@@ -75,5 +80,23 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
                 .token(token)
                 .userName(employee.getUsername())
                 .build();
+    }
+
+    /**
+     * 新增员工
+     */
+    @Override
+    public void addEmployee(EmployeeDTO employeeDTO) {
+        Employee employee = BeanUtil.copyProperties(employeeDTO, Employee.class);
+        employee.setPassword(passwordEncoder.encode(PasswordConstant.DEFAULT_PASSWORD));
+        employee.setStatus(StatusConstant.ENABLE);
+        employee.setCreateTime(LocalDateTime.now());
+        employee.setUpdateTime(LocalDateTime.now());
+        //从 ThreadLocal 中获取当前登录用户
+        Long empId = ThreadLocalUtil.getCurrentId();
+        employee.setCreateUser(empId);
+        employee.setUpdateUser(empId);
+
+        save(employee);
     }
 }

@@ -14,9 +14,10 @@ public class Result<T> implements Serializable {
     private String msg; //错误信息
     private T data; //数据
 
-    public static <T> Result<T> success() {
-        Result<T> result = new Result<T>();
+    public static Result<String> success() {
+        Result<String> result = new Result<String>();
         result.code = 1;
+        result.data = "success";
         return result;
     }
 
