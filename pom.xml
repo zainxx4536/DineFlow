@@ -25,7 +25,6 @@
         <mybatis-plus>3.5.17</mybatis-plus>
         <lombok>1.18.22</lombok>
         <commons.lang>2.6</commons.lang>
-        <druid>1.2.1</druid>
         <aliyun.sdk.oss>3.10.2</aliyun.sdk.oss>
         <knife4j>4.4.0</knife4j>
         <aspectj>1.9.4</aspectj>
@@ -52,12 +51,6 @@
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
                 <version>${commons.lang}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.alibaba</groupId>
-                <artifactId>druid-spring-boot-starter</artifactId>
-                <version>${druid}</version>
             </dependency>
 
             <dependency>
