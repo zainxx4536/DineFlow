@@ -1,6 +1,8 @@
 package com.dineflow.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -94,6 +96,7 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
     public void addEmployee(EmployeeDTO employeeDTO) {
         Employee employee = BeanUtil.copyProperties(employeeDTO, Employee.class);
         employee.setPassword(passwordEncoder.encode(PasswordConstant.DEFAULT_PASSWORD));
+        // TODO 使用自动填充替换
         employee.setStatus(StatusConstant.ENABLE);
         employee.setCreateTime(LocalDateTime.now());
         employee.setUpdateTime(LocalDateTime.now());
@@ -116,8 +119,15 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
         Page<Employee> page = Page.of(pageNo, pageSize);
         page.addOrder(new OrderItem().setColumn("update_time").setAsc(false));
         page.addOrder(new OrderItem().setColumn("id").setAsc(true));
-        //进行分页查询
-        Page<Employee> p = page(page);
+        //请求中可能有姓名作为查询条件
+        LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<Employee>()
+                .like(
+                        StrUtil.isNotBlank(employeePageQueryDTO.getName()),
+                        Employee::getName,
+                        employeePageQueryDTO.getName()
+                );
+        //进行条件分页查询
+        Page<Employee> p = page(page, wrapper);
         List<Employee> records = p.getRecords();
         for (Employee record : records) {
             record.setPassword("******");

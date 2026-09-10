@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serial;
 import java.io.Serializable;
 
 /**
@@ -20,7 +21,9 @@ import java.io.Serializable;
 @TableName("address_book")
 public class AddressBook implements Serializable {
 
+    @Serial
     private static final long serialVersionUID = 1L;
+
     @TableId("id")
     private Long id;
 
