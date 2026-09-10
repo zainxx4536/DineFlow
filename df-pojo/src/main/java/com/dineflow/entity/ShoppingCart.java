@@ -1,5 +1,7 @@
 package com.dineflow.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -50,5 +52,6 @@ public class ShoppingCart implements Serializable {
     //金额
     private BigDecimal amount;
 
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 }

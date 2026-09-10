@@ -96,14 +96,9 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
     public void addEmployee(EmployeeDTO employeeDTO) {
         Employee employee = BeanUtil.copyProperties(employeeDTO, Employee.class);
         employee.setPassword(passwordEncoder.encode(PasswordConstant.DEFAULT_PASSWORD));
-        // TODO 使用自动填充替换
+
         employee.setStatus(StatusConstant.ENABLE);
-        employee.setCreateTime(LocalDateTime.now());
-        employee.setUpdateTime(LocalDateTime.now());
-        //从 ThreadLocal 中获取当前登录用户
-        Long empId = ThreadLocalUtil.getCurrentId();
-        employee.setCreateUser(empId);
-        employee.setUpdateUser(empId);
+        //createTime、updateTime、crateUser、updateUser 由 MyMetaObjectHandler 自动填充
 
         save(employee);
     }
@@ -141,10 +136,16 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
      */
     @Override
     public void modifyEmpStatus(Long id, Integer status) {
-        lambdaUpdate()
-                .set(Employee::getStatus, status)
-                .eq(Employee::getId, id)
-                .update();
+        //注意：这种纯 Wrapper 更新，不会触发 Entity 自动填充
+        //lambdaUpdate().set(Employee::getStatus, status).eq(Employee::getId, id).update();
+
+        //要进行自动填充需要使用这种 Entity 更新
+        Employee employee = Employee.builder()
+                .id(id)
+                .status(status)
+                .build();
+
+        updateById(employee);
     }
 
     /**
@@ -163,9 +164,6 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
     @Override
     public void editEmpInfo(EmployeeDTO employeeDTO) {
         Employee employee = BeanUtil.copyProperties(employeeDTO, Employee.class);
-        employee.setUpdateTime(LocalDateTime.now());
-        Long empId = ThreadLocalUtil.getCurrentId();
-        employee.setUpdateUser(empId);
         updateById(employee);
     }
 }

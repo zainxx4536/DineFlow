@@ -36,13 +36,8 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
     @Override
     public void addNewCategory(CategoryDTO categoryDTO) {
         Category category = BeanUtil.copyProperties(categoryDTO, Category.class);
-        // TODO 使用自动填充替换
+
         category.setStatus(StatusConstant.ENABLE);
-        category.setCreateTime(LocalDateTime.now());
-        category.setUpdateTime(LocalDateTime.now());
-        Long empId = ThreadLocalUtil.getCurrentId();
-        category.setCreateUser(empId);
-        category.setUpdateUser(empId);
 
         save(category);
     }
@@ -88,9 +83,6 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
     @Override
     public void modifyCategory(CategoryDTO categoryDTO) {
         Category category = BeanUtil.copyProperties(categoryDTO, Category.class);
-        category.setUpdateTime(LocalDateTime.now());
-        Long empId = ThreadLocalUtil.getCurrentId();
-        category.setUpdateUser(empId);
         updateById(category);
     }
 
@@ -99,10 +91,11 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
      */
     @Override
     public void modifyCategoryStatus(Long id, Integer status) {
-        lambdaUpdate()
-                .set(Category::getStatus, status)
-                .eq(Category::getId, id)
-                .update();
+        Category category = Category.builder()
+                .id(id)
+                .status(status)
+                .build();
+        updateById(category);
     }
 
     /**
