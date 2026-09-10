@@ -49,7 +49,7 @@ public class EmployeeController {
      */
     @PostMapping
     @ApiOperation("新增员工")
-    public Result<String> addEmployee(@RequestBody EmployeeDTO employeeDTO){
+    public Result<String> addEmployee(@RequestBody EmployeeDTO employeeDTO) {
         log.info("新增员工：{}", employeeDTO);
         employeeService.addEmployee(employeeDTO);
         return Result.success();
@@ -60,9 +60,20 @@ public class EmployeeController {
      */
     @GetMapping("/page")
     @ApiOperation("员工分页查询")
-    public Result<PageResult<Employee>> empPageQuery(EmployeePageQueryDTO employeePageQueryDTO){
+    public Result<PageResult<Employee>> empPageQuery(EmployeePageQueryDTO employeePageQueryDTO) {
         log.info("员工分页查询：{}", employeePageQueryDTO);
         PageResult<Employee> pageResult = employeeService.empPageQuery(employeePageQueryDTO);
         return Result.success(pageResult);
+    }
+
+    /**
+     * 启用、禁用员工账号
+     */
+    @PostMapping("/status/{status}")
+    @ApiOperation("修改员工账号状态")
+    public Result<String> modifyEmpStatus(@PathVariable Integer status, @RequestParam("id") Long id) {
+        log.info("修改员工账号状态：{},{}", id, status);
+        employeeService.modifyEmpStatus(id, status);
+        return Result.success();
     }
 }

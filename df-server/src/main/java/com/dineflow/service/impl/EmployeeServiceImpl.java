@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -117,7 +118,22 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
         page.addOrder(new OrderItem().setColumn("id").setAsc(true));
         //进行分页查询
         Page<Employee> p = page(page);
+        List<Employee> records = p.getRecords();
+        for (Employee record : records) {
+            record.setPassword("******");
+        }
         //解析查询返回数据
-        return new PageResult<Employee>(p.getTotal(), p.getRecords());
+        return new PageResult<>(p.getTotal(), records);
+    }
+
+    /**
+     * 修改员工账号状态
+     */
+    @Override
+    public void modifyEmpStatus(Long id, Integer status) {
+        lambdaUpdate()
+                .set(Employee::getStatus, status)
+                .eq(Employee::getId, id)
+                .update();
     }
 }
