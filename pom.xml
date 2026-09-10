@@ -31,6 +31,7 @@
         <jjwt>0.9.1</jjwt>
         <jaxb-api>2.3.1</jaxb-api>
         <poi>3.16</poi>
+        <hutool>5.8.46</hutool>
     </properties>
 
     <dependencyManagement>
@@ -39,6 +40,18 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-boot-starter</artifactId>
                 <version>${mybatis-plus}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-jsqlparser</artifactId>
+                <version>${mybatis-plus}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-all</artifactId>
+                <version>${hutool}</version>
             </dependency>
 
             <dependency>

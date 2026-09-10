@@ -1,6 +1,8 @@
 package com.dineflow.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.JwtClaimsConstant;
 import com.dineflow.constant.MessageConstant;
@@ -8,12 +10,14 @@ import com.dineflow.constant.PasswordConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
+import com.dineflow.dto.EmployeePageQueryDTO;
 import com.dineflow.entity.Employee;
 import com.dineflow.exception.AccountLockedException;
 import com.dineflow.exception.AccountNotFoundException;
 import com.dineflow.exception.PasswordErrorException;
 import com.dineflow.mapper.EmployeeMapper;
 import com.dineflow.properties.JwtProperties;
+import com.dineflow.result.PageResult;
 import com.dineflow.service.IEmployeeService;
 import com.dineflow.utils.JwtUtil;
 import com.dineflow.utils.ThreadLocalUtil;
@@ -98,5 +102,22 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
         employee.setUpdateUser(empId);
 
         save(employee);
+    }
+
+    /**
+     * 员工分页查询
+     */
+    @Override
+    public PageResult<Employee> empPageQuery(EmployeePageQueryDTO employeePageQueryDTO) {
+        //准备分页条件
+        int pageNo = employeePageQueryDTO.getPage();
+        int pageSize = employeePageQueryDTO.getPageSize();
+        Page<Employee> page = Page.of(pageNo, pageSize);
+        page.addOrder(new OrderItem().setColumn("update_time").setAsc(false));
+        page.addOrder(new OrderItem().setColumn("id").setAsc(true));
+        //进行分页查询
+        Page<Employee> p = page(page);
+        //解析查询返回数据
+        return new PageResult<Employee>(p.getTotal(), p.getRecords());
     }
 }
