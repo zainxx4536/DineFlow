@@ -76,4 +76,27 @@ public class EmployeeController {
         employeeService.modifyEmpStatus(id, status);
         return Result.success();
     }
+
+    /**
+     * 根据 ID 查询员工信息（数据回显）
+     */
+    @GetMapping("/{id}")
+    @ApiOperation("根据 ID 查询员工信息（数据回显）")
+    public Result<Employee> getEmpInfoById(@PathVariable Long id) {
+        log.info("根据 ID 查询员工信息（数据回显）：{}", id);
+        Employee employee = employeeService.getEmpInfoById(id);
+        return Result.success(employee);
+    }
+
+
+    /**
+     * 修改员工信息
+     */
+    @PutMapping
+    @ApiOperation("编辑员工信息")
+    public Result<String> editEmpInfo(@RequestBody EmployeeDTO employeeDTO) {
+        log.info("编辑员工信息：{}", employeeDTO);
+        employeeService.editEmpInfo(employeeDTO);
+        return Result.success();
+    }
 }

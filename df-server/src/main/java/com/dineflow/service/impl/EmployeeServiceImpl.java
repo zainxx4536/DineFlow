@@ -136,4 +136,26 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
                 .eq(Employee::getId, id)
                 .update();
     }
+
+    /**
+     * 根据 ID 查询员工信息（数据回显）
+     */
+    @Override
+    public Employee getEmpInfoById(Long id) {
+        Employee employee = getById(id);
+        employee.setPassword("******");
+        return employee;
+    }
+
+    /**
+     * 修改员工信息
+     */
+    @Override
+    public void editEmpInfo(EmployeeDTO employeeDTO) {
+        Employee employee = BeanUtil.copyProperties(employeeDTO, Employee.class);
+        employee.setUpdateTime(LocalDateTime.now());
+        Long empId = ThreadLocalUtil.getCurrentId();
+        employee.setUpdateUser(empId);
+        updateById(employee);
+    }
 }
