@@ -24,4 +24,8 @@ public interface IDishService extends IService<Dish> {
     PageResult<DishVO> dishPageQuery(DishPageQueryDTO dishPageQueryDTO);
 
     void dishDelBatch(List<Long> ids);
+
+    DishVO getDishById(Long id);
+
+    void modifyDishInfo(DishDTO dishDTO);
 }

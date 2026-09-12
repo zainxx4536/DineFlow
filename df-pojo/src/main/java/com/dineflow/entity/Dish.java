@@ -1,6 +1,7 @@
 package com.dineflow.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
@@ -41,6 +42,7 @@ public class Dish implements Serializable {
     private String image;
 
     //描述信息
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String description;
 
     //0 停售 1 起售
