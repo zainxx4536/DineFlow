@@ -14,6 +14,9 @@ import com.dineflow.dto.DishPageQueryDTO;
 import com.dineflow.entity.Category;
 import com.dineflow.entity.Dish;
 import com.dineflow.entity.DishFlavor;
+import com.dineflow.entity.SetmealDish;
+import com.dineflow.exception.DeletionNotAllowedException;
+import com.dineflow.exception.InvalidParameterException;
 import com.dineflow.mapper.DishMapper;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.IDishService;
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * <p>
@@ -42,7 +46,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
     /**
      * 新增菜品
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void addDish(DishDTO dishDTO) {
         Dish dish = BeanUtil.copyProperties(dishDTO, Dish.class);
@@ -63,36 +67,43 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
      */
     @Override
     public PageResult<DishVO> dishPageQuery(DishPageQueryDTO dishPageQueryDTO) {
-        /*
-        //构造分页条件
-        int pageNo = dishPageQueryDTO.getPage();
-        int pageSize = dishPageQueryDTO.getPageSize();
-        Page<Dish> page = Page.of(pageNo, pageSize);
-        page.addOrder(new OrderItem().setColumn("update_time").setAsc(false));
-        page.addOrder(new OrderItem().setColumn("id").setAsc(true));
-        LambdaQueryWrapper<Dish> wrapper = new LambdaQueryWrapper<Dish>()
-                .like(StrUtil.isNotBlank(dishPageQueryDTO.getName()), Dish::getName, dishPageQueryDTO.getName())
-                .eq(dishPageQueryDTO.getCategoryId() != null, Dish::getCategoryId, dishPageQueryDTO.getCategoryId())
-                .eq(dishPageQueryDTO.getStatus() != null, Dish::getStatus, dishPageQueryDTO.getStatus());
-        //进行分页查询
-        Page<Dish> p = page(page, wrapper);
-        //数据组装
-        List<Dish> records = p.getRecords();
-        List<DishVO> dishVOS = new ArrayList<>();
-        for (Dish record : records) {
-            DishVO dishVO = BeanUtil.copyProperties(record, DishVO.class);
-            Category category = Db.lambdaQuery(Category.class).eq(Category::getId, dishVO.getCategoryId()).one();
-            dishVO.setCategoryName(category.getName());
-            dishVOS.add(dishVO);
-        }
-        return new PageResult<>(p.getTotal(), dishVOS);
-        */
-
-        //上面这种写法要执行的 SQL 语句很多，下面是一种优化的写法，即将这种复杂查询（左连接）放到 mapper 层中
+        //将这种复杂查询（左连接）放到 mapper 层中
         int pageNo = dishPageQueryDTO.getPage();
         int pageSize = dishPageQueryDTO.getPageSize();
         Page<DishVO> page = Page.of(pageNo, pageSize);
         Page<DishVO> p = dishMapper.dishPageQuery(page, dishPageQueryDTO);
         return new PageResult<>(p.getTotal(), p.getRecords());
+    }
+
+    /**
+     * 批量删除菜品
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public void dishDelBatch(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new InvalidParameterException("待删除菜品ID不能为空!");
+        }
+
+        //要先判断菜品是否启用，若启用则不可删除
+        boolean enable = lambdaQuery()
+                .in(Dish::getId, ids)
+                .eq(Dish::getStatus, StatusConstant.ENABLE)
+                .exists();
+        if (enable) {
+            throw new DeletionNotAllowedException("起售中的菜品不可删除!");
+        }
+
+        //再判断是否有套餐中包含的菜品，若有则不可删除
+        boolean contained = Db.lambdaQuery(SetmealDish.class).in(SetmealDish::getDishId, ids).exists();
+        if (contained) {
+            throw new DeletionNotAllowedException("菜品已被套餐关联，不可删除!");
+        }
+
+        //删除菜品
+        removeBatchByIds(ids);
+
+        //删除菜品对应口味
+        Db.lambdaUpdate(DishFlavor.class).in(DishFlavor::getDishId, ids).remove();
     }
 }

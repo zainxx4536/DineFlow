@@ -13,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * <p>
  * 菜品 前端控制器
@@ -46,9 +48,20 @@ public class DishController {
      */
     @GetMapping("/page")
     @ApiOperation("菜品分页查询")
-    public Result<PageResult<DishVO>> dishPageQuery(DishPageQueryDTO dishPageQueryDTO){
+    public Result<PageResult<DishVO>> dishPageQuery(DishPageQueryDTO dishPageQueryDTO) {
         log.info("菜品分页查询：{}", dishPageQueryDTO);
         PageResult<DishVO> pageResult = dishService.dishPageQuery(dishPageQueryDTO);
         return Result.success(pageResult);
+    }
+
+    /**
+     * 批量删除菜品
+     */
+    @DeleteMapping
+    @ApiOperation("批量删除菜品")
+    public Result<String> dishDelBatch(@RequestParam List<Long> ids) {
+        log.info("批量删除菜品：{}", ids);
+        dishService.dishDelBatch(ids);
+        return Result.success();
     }
 }
