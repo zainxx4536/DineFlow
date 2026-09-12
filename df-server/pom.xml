@@ -75,6 +75,7 @@
             <artifactId>aspectjweaver</artifactId>
         </dependency>
 
+        <!-- knife4j -->
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
             <artifactId>knife4j-openapi2-spring-boot-starter</artifactId>
@@ -100,11 +101,13 @@
             <artifactId>jaxb-api</artifactId>
         </dependency>
 
+        <!-- mybatis-plus -->
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-boot-starter</artifactId>
         </dependency>
 
+        <!-- mybatis-plus 分页插件 -->
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-jsqlparser</artifactId>

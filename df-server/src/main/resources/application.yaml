@@ -6,9 +6,13 @@ spring:
     active: dev
   datasource:
     driver-class-name: ${dineflow.datasource.driver-class-name}
-    url: jdbc:mysql://${dineflow.datasource.host}:${dineflow.datasource.port}/${dineflow.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${dineflow.datasource.host}:${dineflow.datasource.port}/${dineflow.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
     username: ${dineflow.datasource.username}
     password: ${dineflow.datasource.password}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 100MB
 
 # mybatis-plus 配置
 mybatis-plus:
@@ -45,3 +49,7 @@ dineflow:
     admin-ttl: 7200000
     # 设置前端传递过来的令牌名称
     admin-token-name: token
+  alioss:
+    endpoint: ${dineflow.alioss.endpoint}
+    bucket-name: ${dineflow.alioss.bucket-name}
+    region: ${dineflow.alioss.region}

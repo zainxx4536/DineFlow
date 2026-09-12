@@ -1,6 +1,7 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.DishDTO;
 import com.dineflow.entity.Dish;
 
 /**
@@ -13,4 +14,5 @@ import com.dineflow.entity.Dish;
  */
 public interface IDishService extends IService<Dish> {
 
+    void addDish(DishDTO dishDTO);
 }

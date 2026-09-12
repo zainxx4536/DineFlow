@@ -6,8 +6,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+import java.util.UUID;
 
 @SpringBootTest
+@EnableTransactionManagement
 class DfServerApplicationTests {
 
     @Autowired
@@ -31,5 +35,10 @@ class DfServerApplicationTests {
         Employee employee = employeeService.getById("1");
         boolean matches = passwordEncoder.matches("123456", employee.getPassword());
         System.out.println(matches);
+    }
+
+    @Test
+    void testUUID(){
+        System.out.println(UUID.randomUUID().toString());
     }
 }
