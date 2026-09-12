@@ -2,4 +2,22 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.dineflow.mapper.DishMapper">
 
+    <select id="dishPageQuery" resultType="com.dineflow.vo.DishVO">
+        select d.*, c.name as category_name
+        from dish d
+        left join category c on d.category_id = c.id
+        <where>
+            <if test="dto.name != null and dto.name != ''">
+                and d.name like concat('%',#{dto.name},'%')
+            </if>
+            <if test="dto.categoryId != null">
+                and d.category_id = #{dto.categoryId}
+            </if>
+            <if test="dto.status != null">
+                and d.status = #{dto.status}
+            </if>
+        </where>
+        order by d.update_time desc ,d.id asc
+    </select>
+
 </mapper>

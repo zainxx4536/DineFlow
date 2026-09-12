@@ -2,7 +2,10 @@ package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
 import com.dineflow.dto.DishDTO;
+import com.dineflow.dto.DishPageQueryDTO;
 import com.dineflow.entity.Dish;
+import com.dineflow.result.PageResult;
+import com.dineflow.vo.DishVO;
 
 /**
  * <p>
@@ -15,4 +18,6 @@ import com.dineflow.entity.Dish;
 public interface IDishService extends IService<Dish> {
 
     void addDish(DishDTO dishDTO);
+
+    PageResult<DishVO> dishPageQuery(DishPageQueryDTO dishPageQueryDTO);
 }
