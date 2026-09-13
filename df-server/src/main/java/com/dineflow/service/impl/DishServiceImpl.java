@@ -4,7 +4,9 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -145,13 +147,16 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
             throw new BaseException("菜品ID不能为空");
         }
         //更新菜品表
-        Dish dish = BeanUtil.copyProperties(dishDTO, Dish.class);
-        //这里会有一个业务误区，MP 默认不会更新实体中为 null 的字段，
-        //  假如前面传过来的“description”为 null 的意思是没有描述而非不更新（一般都是这种意思），
-        //  这里就会处理错误：任然保留旧版的description。
-        //  可以在实体类中的 description 字段上加 @TableField(updateStrategy = FieldStrategy.ALWAYS) 注解
-        //  这样无论前面传过来的 description 是 null 还是有内容，都会更新 description。
-        updateById(dish);
+        Dish dish = new Dish();
+        LambdaUpdateWrapper<Dish> wrapper =
+                Wrappers.lambdaUpdate(Dish.class)
+                        .eq(Dish::getId, dishId)
+                        .set(Dish::getName, dishDTO.getName())
+                        .set(Dish::getCategoryId, dishDTO.getCategoryId())
+                        .set(Dish::getPrice, dishDTO.getPrice())
+                        .set(Dish::getImage, dishDTO.getImage())
+                        .set(Dish::getDescription, dishDTO.getDescription());
+        update(dish, wrapper);
         //更新口味表(先删除原口味表中对应数据，再添加进去)
         Db.lambdaUpdate(DishFlavor.class).eq(DishFlavor::getDishId, dishId).remove();
         List<DishFlavor> flavors = dishDTO.getFlavors();
@@ -161,5 +166,29 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
             }
             Db.saveBatch(flavors);
         }
+    }
+
+    /**
+     * 根据分类ID查询菜品
+     */
+    @Override
+    public List<Dish> getDishByCategoryId(Long categoryId) {
+        if (categoryId == null) {
+            throw new InvalidParameterException("分类ID不能为空");
+        }
+
+        return lambdaQuery().eq(Dish::getCategoryId, categoryId).list();
+    }
+
+    /**
+     * 修改菜品状态
+     */
+    @Override
+    public void modifyDishStatus(Long id, Integer status) {
+        Dish dish = new Dish();
+        LambdaUpdateWrapper<Dish> wrapper = new LambdaUpdateWrapper<Dish>()
+                .set(Dish::getStatus, status)
+                .eq(Dish::getId, id);
+        update(dish, wrapper);
     }
 }

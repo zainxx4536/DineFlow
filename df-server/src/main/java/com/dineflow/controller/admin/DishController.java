@@ -3,6 +3,7 @@ package com.dineflow.controller.admin;
 
 import com.dineflow.dto.DishDTO;
 import com.dineflow.dto.DishPageQueryDTO;
+import com.dineflow.entity.Dish;
 import com.dineflow.result.PageResult;
 import com.dineflow.result.Result;
 import com.dineflow.service.IDishService;
@@ -84,6 +85,28 @@ public class DishController {
     public Result<String> modifyDishInfo(@RequestBody DishDTO dishDTO) {
         log.info("修改菜品信息：{}", dishDTO);
         dishService.modifyDishInfo(dishDTO);
+        return Result.success();
+    }
+
+    /**
+     * 根据分类ID查询菜品
+     */
+    @GetMapping("/list")
+    @ApiOperation("根据分类ID查询菜品")
+    public Result<List<Dish>> getDishByCategoryId(Long categoryId) {
+        log.info("根据分类ID查询菜品：{}", categoryId);
+        List<Dish> dishList = dishService.getDishByCategoryId(categoryId);
+        return Result.success(dishList);
+    }
+
+    /**
+     * 修改菜品状态（起售、停售）
+     */
+    @PostMapping("/status/{status}")
+    @ApiOperation("修改菜品状态（起售、停售）")
+    public Result<String> modifyDishStatus(@PathVariable Integer status, Long id) {
+        log.info("修改菜品状态（起售、停售）:{}, {}", id, status);
+        dishService.modifyDishStatus(id, status);
         return Result.success();
     }
 }

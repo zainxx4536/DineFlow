@@ -42,7 +42,6 @@ public class Dish implements Serializable {
     private String image;
 
     //描述信息
-    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String description;
 
     //0 停售 1 起售

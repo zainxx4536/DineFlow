@@ -28,4 +28,8 @@ public interface IDishService extends IService<Dish> {
     DishVO getDishById(Long id);
 
     void modifyDishInfo(DishDTO dishDTO);
+
+    List<Dish> getDishByCategoryId(Long categoryId);
+
+    void modifyDishStatus(Long id, Integer status);
 }
