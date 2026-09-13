@@ -1,6 +1,7 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.SetmealDTO;
 import com.dineflow.entity.Setmeal;
 
 /**
@@ -13,4 +14,5 @@ import com.dineflow.entity.Setmeal;
  */
 public interface ISetmealService extends IService<Setmeal> {
 
+    void addSetmeal(SetmealDTO setmealDTO);
 }

@@ -169,7 +169,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
     }
 
     /**
-     * 根据分类ID查询菜品
+     * 根据分类ID查询菜品（用于添加套餐时展示可添加菜品，所以菜品状态必须为 enable）
      */
     @Override
     public List<Dish> getDishByCategoryId(Long categoryId) {
@@ -177,7 +177,9 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
             throw new InvalidParameterException("分类ID不能为空");
         }
 
-        return lambdaQuery().eq(Dish::getCategoryId, categoryId).list();
+        return lambdaQuery().eq(Dish::getCategoryId, categoryId)
+                .eq(Dish::getStatus, StatusConstant.ENABLE)
+                .list();
     }
 
     /**
