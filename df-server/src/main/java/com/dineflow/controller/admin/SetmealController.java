@@ -3,7 +3,6 @@ package com.dineflow.controller.admin;
 
 import com.dineflow.dto.SetmealDTO;
 import com.dineflow.dto.SetmealPageQueryDTO;
-import com.dineflow.entity.Setmeal;
 import com.dineflow.result.PageResult;
 import com.dineflow.result.Result;
 import com.dineflow.service.ISetmealService;
@@ -67,7 +66,7 @@ public class SetmealController {
     }
 
     /**
-     * 根据ID查询套餐
+     * 根据ID查询套餐（数据回显）
      */
     @GetMapping("/{id}")
     @ApiOperation("根据ID查询套餐")
@@ -75,5 +74,27 @@ public class SetmealController {
         log.info("根据ID查询套餐：{}", id);
         SetmealVO setmealVO = setmealService.getSetmealById(id);
         return Result.success(setmealVO);
+    }
+
+    /**
+     * 修改套餐
+     */
+    @PutMapping
+    @ApiOperation("修改套餐")
+    public Result<String> modifySetmeal(@RequestBody SetmealDTO setmealDTO) {
+        log.info("修改套餐：{}", setmealDTO);
+        setmealService.modifySetmeal(setmealDTO);
+        return Result.success();
+    }
+
+    /**
+     * 修改套餐状态（起售、停售）
+     */
+    @PostMapping("/status/{status}")
+    @ApiOperation("修改套餐状态")
+    public Result<String> modifySetmealStatus(@PathVariable Integer status, Long id) {
+        log.info("修改套餐状态：{}，{}", id, status);
+        setmealService.modifySetmealStatus(id, status);
+        return Result.success();
     }
 }

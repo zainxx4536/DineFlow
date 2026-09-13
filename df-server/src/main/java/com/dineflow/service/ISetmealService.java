@@ -26,4 +26,8 @@ public interface ISetmealService extends IService<Setmeal> {
     void setmealDelBatch(List<Long> ids);
 
     SetmealVO getSetmealById(Long id);
+
+    void modifySetmeal(SetmealDTO setmealDTO);
+
+    void modifySetmealStatus(Long id, Integer status);
 }
