@@ -1,7 +1,11 @@
 package com.dineflow.mapper;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dineflow.dto.SetmealPageQueryDTO;
 import com.dineflow.entity.Setmeal;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.dineflow.vo.SetmealVO;
+import org.apache.ibatis.annotations.Param;
 
 /**
  * <p>
@@ -13,4 +17,5 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  */
 public interface SetmealMapper extends BaseMapper<Setmeal> {
 
+    Page<SetmealVO> setmealPageQuery(Page<SetmealVO> page, @Param("dto") SetmealPageQueryDTO dto);
 }

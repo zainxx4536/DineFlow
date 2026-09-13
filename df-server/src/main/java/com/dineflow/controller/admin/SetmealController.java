@@ -2,17 +2,17 @@ package com.dineflow.controller.admin;
 
 
 import com.dineflow.dto.SetmealDTO;
+import com.dineflow.dto.SetmealPageQueryDTO;
+import com.dineflow.entity.Setmeal;
+import com.dineflow.result.PageResult;
 import com.dineflow.result.Result;
 import com.dineflow.service.ISetmealService;
+import com.dineflow.vo.SetmealVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * <p>
@@ -31,11 +31,25 @@ public class SetmealController {
 
     private final ISetmealService setmealService;
 
+    /**
+     * 新增套餐
+     */
     @PostMapping
     @ApiOperation("新增套餐")
     public Result<String> addSetmeal(@RequestBody SetmealDTO setmealDTO) {
         log.info("新增套餐：{}", setmealDTO);
         setmealService.addSetmeal(setmealDTO);
         return Result.success();
+    }
+
+    /**
+     * 套餐分页查询
+     */
+    @GetMapping("/page")
+    @ApiOperation("套餐分页查询")
+    public Result<PageResult<SetmealVO>> setmealPageQuery(SetmealPageQueryDTO setmealPageQueryDTO) {
+        log.info("套餐分页查询：{}", setmealPageQueryDTO);
+        PageResult<SetmealVO> pageResult = setmealService.setmealPageQuery(setmealPageQueryDTO);
+        return Result.success(pageResult);
     }
 }

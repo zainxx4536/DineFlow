@@ -2,14 +2,22 @@ package com.dineflow.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.dto.SetmealDTO;
+import com.dineflow.dto.SetmealPageQueryDTO;
 import com.dineflow.entity.Setmeal;
 import com.dineflow.entity.SetmealDish;
 import com.dineflow.exception.BaseException;
 import com.dineflow.mapper.SetmealMapper;
+import com.dineflow.result.PageResult;
 import com.dineflow.service.ISetmealService;
+import com.dineflow.vo.SetmealVO;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +32,10 @@ import java.util.List;
  * @since 2026-09-08
  */
 @Service
+@RequiredArgsConstructor
 public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> implements ISetmealService {
+
+    private final SetmealMapper setmealMapper;
 
     /**
      * 新增套餐
@@ -51,5 +62,19 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
             setmealDish.setSetmealId(setmealId);
         }
         Db.saveBatch(setmealDishes);
+    }
+
+    /**
+     * 套餐分页查询
+     */
+    @Override
+    public PageResult<SetmealVO> setmealPageQuery(SetmealPageQueryDTO dto) {
+        //构建分页条件
+        int pageNo = dto.getPage();
+        int pageSize = dto.getPageSize();
+        Page<SetmealVO> page = Page.of(pageNo, pageSize);
+        //进行分页查询
+        Page<SetmealVO> p = setmealMapper.setmealPageQuery(page, dto);
+        return new PageResult<>(p.getTotal(), p.getRecords());
     }
 }

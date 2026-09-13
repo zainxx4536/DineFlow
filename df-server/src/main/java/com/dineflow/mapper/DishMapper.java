@@ -18,5 +18,5 @@ import org.apache.ibatis.annotations.Param;
  */
 public interface DishMapper extends BaseMapper<Dish> {
 
-    Page<DishVO> dishPageQuery(Page<DishVO> page, @Param("dto") DishPageQueryDTO dishPageQueryDTO);
+    Page<DishVO> dishPageQuery(Page<DishVO> page, @Param("dto") DishPageQueryDTO dto);
 }
