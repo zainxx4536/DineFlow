@@ -1,6 +1,5 @@
 package com.dineflow.mapper;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dineflow.dto.DishPageQueryDTO;
 import com.dineflow.entity.Dish;
@@ -18,5 +17,5 @@ import org.apache.ibatis.annotations.Param;
  */
 public interface DishMapper extends BaseMapper<Dish> {
 
-    Page<DishVO> dishPageQuery(Page<DishVO> page, @Param("dto") DishPageQueryDTO dto);
+    Page<DishVO> dishPageQuery(@Param("page") Page<DishVO> page, @Param("dto") DishPageQueryDTO dto);
 }

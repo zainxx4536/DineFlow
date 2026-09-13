@@ -17,5 +17,5 @@ import org.apache.ibatis.annotations.Param;
  */
 public interface SetmealMapper extends BaseMapper<Setmeal> {
 
-    Page<SetmealVO> setmealPageQuery(Page<SetmealVO> page, @Param("dto") SetmealPageQueryDTO dto);
+    Page<SetmealVO> setmealPageQuery(@Param("page") Page<SetmealVO> page, @Param("dto") SetmealPageQueryDTO dto);
 }

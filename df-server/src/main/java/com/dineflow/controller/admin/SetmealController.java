@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * <p>
  * 套餐 前端控制器
@@ -51,5 +53,27 @@ public class SetmealController {
         log.info("套餐分页查询：{}", setmealPageQueryDTO);
         PageResult<SetmealVO> pageResult = setmealService.setmealPageQuery(setmealPageQueryDTO);
         return Result.success(pageResult);
+    }
+
+    /**
+     * 批量删除套餐
+     */
+    @DeleteMapping
+    @ApiOperation("批量删除套餐")
+    public Result<String> setmealDelBatch(@RequestParam List<Long> ids) {
+        log.info("批量删除套餐：{}", ids);
+        setmealService.setmealDelBatch(ids);
+        return Result.success();
+    }
+
+    /**
+     * 根据ID查询套餐
+     */
+    @GetMapping("/{id}")
+    @ApiOperation("根据ID查询套餐")
+    public Result<SetmealVO> getSetmealById(@PathVariable Long id) {
+        log.info("根据ID查询套餐：{}", id);
+        SetmealVO setmealVO = setmealService.getSetmealById(id);
+        return Result.success(setmealVO);
     }
 }

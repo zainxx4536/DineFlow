@@ -7,6 +7,8 @@ import com.dineflow.entity.Setmeal;
 import com.dineflow.result.PageResult;
 import com.dineflow.vo.SetmealVO;
 
+import java.util.List;
+
 /**
  * <p>
  * 套餐 服务类
@@ -20,4 +22,8 @@ public interface ISetmealService extends IService<Setmeal> {
     void addSetmeal(SetmealDTO setmealDTO);
 
     PageResult<SetmealVO> setmealPageQuery(SetmealPageQueryDTO setmealPageQueryDTO);
+
+    void setmealDelBatch(List<Long> ids);
+
+    SetmealVO getSetmealById(Long id);
 }
