@@ -13,6 +13,16 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 100MB
+  redis:
+    host: ${dineflow.redis.host}
+    port: ${dineflow.redis.port}
+    password: ${dineflow.redis.password}
+    lettuce:
+      pool:
+        max-active: 8  #最大连接
+        max-idle: 8   #最大空闲连接
+        min-idle: 0   #最小空闲连接
+        max-wait: 100ms #连接等待时间
 
 # mybatis-plus 配置
 mybatis-plus:
