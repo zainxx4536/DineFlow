@@ -32,4 +32,6 @@ public interface IDishService extends IService<Dish> {
     List<Dish> getDishByCategoryId(Long categoryId);
 
     void modifyDishStatus(Long id, Integer status);
+
+    List<DishVO> getDishAndFlavorByCategoryId(Long categoryId);
 }

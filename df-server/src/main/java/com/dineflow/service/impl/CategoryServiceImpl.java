@@ -107,4 +107,14 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
                 .eq(Category::getType, type)
                 .list();
     }
+
+    /**
+     * C端-根据类型查询分类
+     */
+    @Override
+    public List<Category> categoryQueryByType(Integer type) {
+        return lambdaQuery()
+                .eq(type != null, Category::getType, type)
+                .list();
+    }
 }

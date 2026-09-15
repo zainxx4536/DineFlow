@@ -52,6 +52,9 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
                 .excludePathPatterns("/admin/employee/login");
         registry.addInterceptor(userRequestInterceptor)
                 .addPathPatterns("/user/**")
-                .excludePathPatterns("/user/user/login");
+                .excludePathPatterns(
+                        "/user/user/login",
+                        "/user/shop/status"
+                );
     }
 }

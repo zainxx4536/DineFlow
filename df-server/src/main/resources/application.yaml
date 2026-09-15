@@ -61,7 +61,7 @@ dineflow:
     admin-token-name: token
     user-secret-key: ${dineflow.jwt.user-secret-key}
     user-ttl: ${dineflow.jwt.user-ttl}
-    user-token-name: token
+    user-token-name: authentication
   alioss:
     endpoint: ${dineflow.alioss.endpoint}
     bucket-name: ${dineflow.alioss.bucket-name}

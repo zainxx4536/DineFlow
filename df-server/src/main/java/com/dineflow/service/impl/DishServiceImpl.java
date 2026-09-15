@@ -28,9 +28,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -192,5 +191,53 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
                 .set(Dish::getStatus, status)
                 .eq(Dish::getId, id);
         update(dish, wrapper);
+    }
+
+    /**
+     * C端-根据分类ID查询菜品及口味
+     */
+    @Override
+    public List<DishVO> getDishAndFlavorByCategoryId(Long categoryId) {
+
+        // 查询当前分类下起售的菜品
+        List<Dish> dishList = lambdaQuery()
+                .eq(Dish::getCategoryId, categoryId)
+                .eq(Dish::getStatus, StatusConstant.ENABLE)
+                .list();
+
+        if (CollUtil.isEmpty(dishList)) {
+            return Collections.emptyList();
+        }
+
+        // 获取所有菜品ID
+        List<Long> dishIds = dishList.stream()
+                .map(Dish::getId)
+                .collect(Collectors.toList());
+
+        // 一次性查询所有菜品口味
+        List<DishFlavor> flavorList = Db.lambdaQuery(DishFlavor.class)
+                .in(DishFlavor::getDishId, dishIds)
+                .list();
+
+        // 按 dishId 对口味进行分组
+        Map<Long, List<DishFlavor>> flavorMap = flavorList.stream()
+                .collect(Collectors.groupingBy(DishFlavor::getDishId));
+
+        // 封装VO
+        List<DishVO> dishVOList = new ArrayList<>();
+
+        for (Dish dish : dishList) {
+            DishVO dishVO = BeanUtil.copyProperties(dish, DishVO.class);
+
+            dishVO.setFlavors(
+                    flavorMap.getOrDefault(
+                            dish.getId(), Collections.emptyList()
+                    )
+            );
+
+            dishVOList.add(dishVO);
+        }
+
+        return dishVOList;
     }
 }

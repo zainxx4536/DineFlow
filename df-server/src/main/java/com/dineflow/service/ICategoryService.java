@@ -29,4 +29,6 @@ public interface ICategoryService extends IService<Category> {
     void modifyCategoryStatus(Long id, Integer status);
 
     List<Category> getCategoryByType(Integer type);
+
+    List<Category> categoryQueryByType(Integer type);
 }

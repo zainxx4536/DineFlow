@@ -23,13 +23,13 @@ import com.dineflow.exception.SetmealEnableFailedException;
 import com.dineflow.mapper.SetmealMapper;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.ISetmealService;
+import com.dineflow.vo.DishItemVO;
 import com.dineflow.vo.SetmealVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -220,5 +220,70 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
                 .build();
 
         updateById(setmeal);
+    }
+
+    /**
+     * C端-根据分类ID查询套餐
+     */
+    @Override
+    public List<Setmeal> getSetmealByCategoryId(Long categoryId) {
+        List<Setmeal> setmealList = lambdaQuery().eq(Setmeal::getCategoryId, categoryId).list();
+        if (CollUtil.isEmpty(setmealList)) {
+            return Collections.emptyList();
+        }
+        return setmealList;
+    }
+
+    /**
+     * C端-根据套餐ID查询包含菜品
+     */
+    @Override
+    public List<DishItemVO> getDishBySetmealId(Long id) {
+
+        // 查询套餐与菜品的关联关系
+        List<SetmealDish> setmealDishList = Db
+                .lambdaQuery(SetmealDish.class)
+                .eq(SetmealDish::getSetmealId, id)
+                .list();
+
+        if (CollUtil.isEmpty(setmealDishList)) {
+            return Collections.emptyList();
+        }
+
+        // 获取套餐中的所有菜品ID
+        List<Long> dishIdList = setmealDishList.stream()
+                .map(SetmealDish::getDishId)
+                .toList();
+
+        // 一次性查询菜品信息
+        List<Dish> dishList = Db.lambdaQuery(Dish.class)
+                .in(Dish::getId, dishIdList)
+                .list();
+
+        // 把 List 集合转成 Map：dishId -> Dish 的形式，方便后面数据封装
+        Map<Long, Dish> dishMap = dishList.stream()
+                .collect(Collectors.toMap(
+                        Dish::getId,
+                        dish -> dish
+                ));
+
+        // 封装返回数据
+        List<DishItemVO> dishItemVOS = new ArrayList<>();
+
+        for (SetmealDish setmealDish : setmealDishList) {
+
+            DishItemVO dishItemVO = BeanUtil.copyProperties(setmealDish, DishItemVO.class);
+
+            Dish dish = dishMap.get(setmealDish.getDishId());
+
+            if (dish != null) {
+                dishItemVO.setImage(dish.getImage());
+                dishItemVO.setDescription(dish.getDescription());
+            }
+
+            dishItemVOS.add(dishItemVO);
+        }
+
+        return dishItemVOS;
     }
 }

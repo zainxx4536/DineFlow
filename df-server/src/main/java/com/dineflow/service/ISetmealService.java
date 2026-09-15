@@ -5,6 +5,7 @@ import com.dineflow.dto.SetmealDTO;
 import com.dineflow.dto.SetmealPageQueryDTO;
 import com.dineflow.entity.Setmeal;
 import com.dineflow.result.PageResult;
+import com.dineflow.vo.DishItemVO;
 import com.dineflow.vo.SetmealVO;
 
 import java.util.List;
@@ -30,4 +31,8 @@ public interface ISetmealService extends IService<Setmeal> {
     void modifySetmeal(SetmealDTO setmealDTO);
 
     void modifySetmealStatus(Long id, Integer status);
+
+    List<Setmeal> getSetmealByCategoryId(Long categoryId);
+
+    List<DishItemVO> getDishBySetmealId(Long id);
 }
