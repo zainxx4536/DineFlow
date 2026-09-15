@@ -1,7 +1,9 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.UserLoginDTO;
 import com.dineflow.entity.User;
+import com.dineflow.vo.UserLoginVO;
 
 /**
  * <p>
@@ -13,4 +15,5 @@ import com.dineflow.entity.User;
  */
 public interface IUserService extends IService<User> {
 
+    UserLoginVO userLogin(UserLoginDTO userLoginDTO);
 }

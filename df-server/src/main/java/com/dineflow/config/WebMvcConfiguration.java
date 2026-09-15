@@ -1,6 +1,7 @@
 package com.dineflow.config;
 
 import com.dineflow.interceptor.AdminRequestInterceptor;
+import com.dineflow.interceptor.UserRequestInterceptor;
 import com.dineflow.json.JacksonObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
@@ -19,6 +20,8 @@ import java.util.List;
 public class WebMvcConfiguration implements WebMvcConfigurer {
 
     private final AdminRequestInterceptor adminRequestInterceptor;
+
+    private final UserRequestInterceptor userRequestInterceptor;
 
     /**
      * 将自定义的 JacksonObjectMapper 注册到 Spring MVC 的消息转换器中
@@ -47,5 +50,8 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
         registry.addInterceptor(adminRequestInterceptor)
                 .addPathPatterns("/admin/**")
                 .excludePathPatterns("/admin/employee/login");
+        registry.addInterceptor(userRequestInterceptor)
+                .addPathPatterns("/user/**")
+                .excludePathPatterns("/user/user/login");
     }
 }

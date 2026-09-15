@@ -54,12 +54,18 @@ logging:
 dineflow:
   jwt:
     # 设置jwt签名加密时使用的秘钥
-    admin-secret-key: itzainxx
+    admin-secret-key: ${dineflow.jwt.admin-secret-key}
     # 设置jwt过期时间
-    admin-ttl: 7200000
+    admin-ttl: ${dineflow.jwt.admin-ttl}
     # 设置前端传递过来的令牌名称
     admin-token-name: token
+    user-secret-key: ${dineflow.jwt.user-secret-key}
+    user-ttl: ${dineflow.jwt.user-ttl}
+    user-token-name: token
   alioss:
     endpoint: ${dineflow.alioss.endpoint}
     bucket-name: ${dineflow.alioss.bucket-name}
     region: ${dineflow.alioss.region}
+  wechat:
+    appid: ${dineflow.wechat.appid}
+    secret: ${dineflow.wechat.secret}

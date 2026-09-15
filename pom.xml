@@ -27,9 +27,7 @@
         <commons.lang>2.6</commons.lang>
         <aliyun.sdk.oss>0.5.1</aliyun.sdk.oss>
         <knife4j>4.4.0</knife4j>
-        <aspectj>1.9.4</aspectj>
         <jjwt>0.9.1</jjwt>
-        <jaxb-api>2.3.1</jaxb-api>
         <poi>3.16</poi>
         <hutool>5.8.46</hutool>
         <httpclient5>5.5</httpclient5>
@@ -76,18 +74,6 @@
             </dependency>
 
             <dependency>
-                <groupId>org.aspectj</groupId>
-                <artifactId>aspectjrt</artifactId>
-                <version>${aspectj}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.aspectj</groupId>
-                <artifactId>aspectjweaver</artifactId>
-                <version>${aspectj}</version>
-            </dependency>
-
-            <dependency>
                 <groupId>io.jsonwebtoken</groupId>
                 <artifactId>jjwt</artifactId>
                 <version>${jjwt}</version>
@@ -118,22 +104,17 @@
             </dependency>
 
             <dependency>
-                <groupId>javax.xml.bind</groupId>
-                <artifactId>jaxb-api</artifactId>
-                <version>${jaxb-api}</version>
-            </dependency>
-
-            <!-- poi -->
-            <dependency>
                 <groupId>org.apache.poi</groupId>
                 <artifactId>poi</artifactId>
                 <version>${poi}</version>
             </dependency>
+
             <dependency>
                 <groupId>org.apache.poi</groupId>
                 <artifactId>poi-ooxml</artifactId>
                 <version>${poi}</version>
             </dependency>
+
             <!--微信支付-->
             <dependency>
                 <groupId>com.github.wechatpay-apiv3</groupId>
