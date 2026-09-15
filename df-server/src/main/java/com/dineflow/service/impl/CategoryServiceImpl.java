@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.CategoryDTO;
 import com.dineflow.dto.CategoryPageQueryDTO;
@@ -14,6 +15,7 @@ import com.dineflow.mapper.CategoryMapper;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.ICategoryService;
 import com.dineflow.utils.ThreadLocalUtil;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -112,6 +114,10 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
      * C端-根据类型查询分类
      */
     @Override
+    @Cacheable(
+            cacheNames = RedisKeyConstant.CATEGORY_LIST,
+            key = "#type == null ? 'all' : #type"
+    )
     public List<Category> categoryQueryByType(Integer type) {
         return lambdaQuery()
                 .eq(type != null, Category::getType, type)

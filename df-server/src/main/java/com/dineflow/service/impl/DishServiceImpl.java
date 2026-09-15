@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.DishDTO;
 import com.dineflow.dto.DishPageQueryDTO;
@@ -25,6 +26,7 @@ import com.dineflow.result.PageResult;
 import com.dineflow.service.IDishService;
 import com.dineflow.vo.DishVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -197,6 +199,10 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
      * C端-根据分类ID查询菜品及口味
      */
     @Override
+    @Cacheable(
+            cacheNames = RedisKeyConstant.CATEGORY_DISH_FLAVOR,
+            key = "#categoryId"
+    )
     public List<DishVO> getDishAndFlavorByCategoryId(Long categoryId) {
 
         // 查询当前分类下起售的菜品

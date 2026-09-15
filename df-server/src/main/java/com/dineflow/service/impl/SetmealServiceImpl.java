@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.SetmealDTO;
 import com.dineflow.dto.SetmealPageQueryDTO;
@@ -26,6 +27,7 @@ import com.dineflow.service.ISetmealService;
 import com.dineflow.vo.DishItemVO;
 import com.dineflow.vo.SetmealVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -226,8 +228,15 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
      * C端-根据分类ID查询套餐
      */
     @Override
+    @Cacheable(
+            cacheNames = RedisKeyConstant.CATEGORY_SETMEAL,
+            key = "#categoryId"
+    )
     public List<Setmeal> getSetmealByCategoryId(Long categoryId) {
-        List<Setmeal> setmealList = lambdaQuery().eq(Setmeal::getCategoryId, categoryId).list();
+        List<Setmeal> setmealList = lambdaQuery()
+                .eq(Setmeal::getCategoryId, categoryId)
+                .eq(Setmeal::getStatus, StatusConstant.ENABLE)
+                .list();
         if (CollUtil.isEmpty(setmealList)) {
             return Collections.emptyList();
         }
@@ -238,6 +247,10 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
      * C端-根据套餐ID查询包含菜品
      */
     @Override
+    @Cacheable(
+            cacheNames = RedisKeyConstant.SETMEAL_DISH,
+            key = "#id"
+    )
     public List<DishItemVO> getDishBySetmealId(Long id) {
 
         // 查询套餐与菜品的关联关系

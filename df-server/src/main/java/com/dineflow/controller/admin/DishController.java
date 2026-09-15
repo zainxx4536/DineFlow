@@ -1,6 +1,7 @@
 package com.dineflow.controller.admin;
 
 
+import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.dto.DishDTO;
 import com.dineflow.dto.DishPageQueryDTO;
 import com.dineflow.entity.Dish;
@@ -12,6 +13,8 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -38,6 +41,7 @@ public class DishController {
      */
     @PostMapping
     @ApiOperation("新增菜品")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_DISH_FLAVOR, allEntries = true)
     public Result<String> addDish(@RequestBody DishDTO dishDTO) {
         log.info("新增菜品：{}", dishDTO);
         dishService.addDish(dishDTO);
@@ -60,6 +64,7 @@ public class DishController {
      */
     @DeleteMapping
     @ApiOperation("批量删除菜品")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_DISH_FLAVOR, allEntries = true)
     public Result<String> dishDelBatch(@RequestParam List<Long> ids) {
         log.info("批量删除菜品：{}", ids);
         dishService.dishDelBatch(ids);
@@ -82,6 +87,7 @@ public class DishController {
      */
     @PutMapping
     @ApiOperation("修改菜品信息")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_DISH_FLAVOR, allEntries = true)
     public Result<String> modifyDishInfo(@RequestBody DishDTO dishDTO) {
         log.info("修改菜品信息：{}", dishDTO);
         dishService.modifyDishInfo(dishDTO);
@@ -104,6 +110,16 @@ public class DishController {
      */
     @PostMapping("/status/{status}")
     @ApiOperation("修改菜品状态（起售、停售）")
+    @Caching(evict = {
+            @CacheEvict(
+                    cacheNames = RedisKeyConstant.CATEGORY_DISH_FLAVOR,
+                    allEntries = true
+            ),
+            @CacheEvict(
+                    cacheNames = RedisKeyConstant.SETMEAL_DISH,
+                    allEntries = true
+            )
+    })
     public Result<String> modifyDishStatus(@PathVariable Integer status, Long id) {
         log.info("修改菜品状态（起售、停售）:{}, {}", id, status);
         dishService.modifyDishStatus(id, status);

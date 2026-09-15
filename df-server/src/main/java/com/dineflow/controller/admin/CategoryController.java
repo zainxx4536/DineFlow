@@ -1,6 +1,7 @@
 package com.dineflow.controller.admin;
 
 
+import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.dto.CategoryDTO;
 import com.dineflow.dto.CategoryPageQueryDTO;
 import com.dineflow.entity.Category;
@@ -11,6 +12,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -37,6 +39,7 @@ public class CategoryController {
      */
     @PostMapping
     @ApiOperation("新增分类")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> addNewCategory(@RequestBody CategoryDTO categoryDTO) {
         log.info("新增分类：{}", categoryDTO);
         categoryService.addNewCategory(categoryDTO);
@@ -55,12 +58,13 @@ public class CategoryController {
     }
 
     /**
-     * 根据id删除分类
+     * 根据ID删除分类
      */
     @DeleteMapping
-    @ApiOperation("根据id删除分类")
+    @ApiOperation("根据ID删除分类")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> delCategoryById(Long id) {
-        log.info("根据id删除分类：{}", id);
+        log.info("根据ID删除分类：{}", id);
         categoryService.delCategoryById(id);
         return Result.success();
     }
@@ -70,6 +74,7 @@ public class CategoryController {
      */
     @PutMapping
     @ApiOperation("修改分类")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> modifyCategory(@RequestBody CategoryDTO categoryDTO) {
         log.info("修改分类：{}", categoryDTO);
         categoryService.modifyCategory(categoryDTO);
@@ -81,6 +86,7 @@ public class CategoryController {
      */
     @PostMapping("/status/{status}")
     @ApiOperation("修改分类状态")
+    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> modifyCategoryStatus(@PathVariable Integer status, Long id) {
         log.info("修改分类状态：{}，{}", id, status);
         categoryService.modifyCategoryStatus(id, status);
