@@ -1,7 +1,10 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.ShoppingCartDTO;
 import com.dineflow.entity.ShoppingCart;
+
+import java.util.List;
 
 /**
  * <p>
@@ -13,4 +16,11 @@ import com.dineflow.entity.ShoppingCart;
  */
 public interface IShoppingCartService extends IService<ShoppingCart> {
 
+    void addItemsToCart(ShoppingCartDTO shoppingCartDTO);
+
+    List<ShoppingCart> showShoppingCart();
+
+    void subItemToCart(ShoppingCartDTO shoppingCartDTO);
+
+    void cleanShoppingCart();
 }
