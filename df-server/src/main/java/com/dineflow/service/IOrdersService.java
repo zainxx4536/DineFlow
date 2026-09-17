@@ -1,7 +1,9 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.OrdersSubmitDTO;
 import com.dineflow.entity.Orders;
+import com.dineflow.vo.OrderSubmitVO;
 
 /**
  * <p>
@@ -13,4 +15,5 @@ import com.dineflow.entity.Orders;
  */
 public interface IOrdersService extends IService<Orders> {
 
+    OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO);
 }

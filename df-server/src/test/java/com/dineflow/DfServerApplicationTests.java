@@ -1,5 +1,6 @@
 package com.dineflow;
 
+import cn.hutool.core.lang.UUID;
 import cn.hutool.json.JSONObject;
 import com.dineflow.entity.Employee;
 import com.dineflow.service.IEmployeeService;
@@ -18,7 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import java.io.IOException;
-import java.util.UUID;
+import java.time.LocalDateTime;
 
 @SpringBootTest
 @EnableTransactionManagement
@@ -49,7 +50,9 @@ class DfServerApplicationTests {
 
     @Test
     void testUUID() {
-        System.out.println(UUID.randomUUID().toString());
+        System.out.println(UUID.randomUUID().toString(true));
+        String orderNumber = UUID.randomUUID().toString(true) + LocalDateTime.now().toString();
+        System.out.println(orderNumber);
     }
 
     @Test
