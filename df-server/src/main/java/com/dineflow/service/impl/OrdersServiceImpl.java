@@ -13,9 +13,11 @@ import com.dineflow.exception.AddressBookBusinessException;
 import com.dineflow.exception.OrderBusinessException;
 import com.dineflow.exception.ShoppingCartBusinessException;
 import com.dineflow.mapper.OrdersMapper;
+import com.dineflow.model.Coordinate;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.IOrdersService;
+import com.dineflow.utils.BaiduMapClient;
 import com.dineflow.utils.RedisIdWorker;
 import com.dineflow.utils.ThreadLocalUtil;
 import com.dineflow.utils.WeChatPayUtil;
@@ -57,6 +59,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
     private final OrdersMapper ordersMapper;
 
+    private final BaiduMapClient baiduMapClient;
+
+    public static final double DELIVERY_RANGE_METERS = 5000D;
+
     /**
      * C端-用户提交订单
      */
@@ -64,8 +70,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     @Transactional(rollbackFor = Exception.class)
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
         Long userId = ThreadLocalUtil.getCurrentId();
-        //校验订单状态（收货地址为空、购物车为空）
-        //获取地址信息
+        // 校验订单状态（收货地址为空、购物车为空）
+        // 获取地址信息
         AddressBook address = Db.lambdaQuery(AddressBook.class)
                 .eq(AddressBook::getId, ordersSubmitDTO.getAddressBookId())
                 .eq(AddressBook::getUserId, userId)
@@ -73,8 +79,21 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         if (address == null) {
             throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
         }
-        // todo 判断是否超出配送范围
-        //获取购物车中的商品信息
+        // 判断是否超出配送范围
+        // 拼接完整地址
+        String wholeAddress = address.getProvinceName()
+                + address.getCityName()
+                + address.getDistrictName()
+                + address.getDetail();
+        // 获取收货地址经纬度
+        Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
+        // 获取收货地址距离店铺的驾车距离（米）
+        double distance = baiduMapClient.getDrivingDistance(coordinate);
+        if (distance > DELIVERY_RANGE_METERS) {
+            throw new AddressBookBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
+        }
+
+        // 获取购物车中的商品信息
         List<ShoppingCart> itemsList = Db.lambdaQuery(ShoppingCart.class)
                 .eq(ShoppingCart::getUserId, userId)
                 .list();
@@ -82,20 +101,20 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
         }
 
-        //订单金额应以后端购物车数据为准
+        // 订单金额应以后端购物车数据为准
         BigDecimal amount = itemsList.stream()
                 .map(item -> item.getAmount()
                         .multiply(BigDecimal.valueOf(item.getNumber())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        //使用全局唯一ID生成器生成订单号
+        // 使用全局唯一ID生成器生成订单号
         long orderNumber = redisIdWorker.nextId("order");
 
-        //插入订单数据
+        // 插入订单数据
         Orders order = BeanUtil.copyProperties(ordersSubmitDTO, Orders.class);
         order.setAmount(amount);
         order.setPhone(address.getPhone());
-        order.setAddress(address.getDetail());
+        order.setAddress(wholeAddress);
         order.setConsignee(address.getConsignee());
         order.setNumber(String.valueOf(orderNumber));
         order.setUserId(userId);
@@ -104,7 +123,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         order.setOrderTime(LocalDateTime.now());
         save(order);
 
-        //插入订单详情数据
+        // 插入订单详情数据
         List<OrderDetail> orderDetailList = new ArrayList<>();
         for (ShoppingCart item : itemsList) {
             OrderDetail orderDetail = BeanUtil.copyProperties(item, OrderDetail.class);
@@ -113,12 +132,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         }
         Db.saveBatch(orderDetailList);
 
-        //删除购物车数据
+        // 删除购物车数据
         Db.lambdaUpdate(ShoppingCart.class)
                 .eq(ShoppingCart::getUserId, userId)
                 .remove();
 
-        //封装返回结果
+        // 封装返回结果
         return OrderSubmitVO.builder()
                 .id(order.getId())
                 .orderNumber(order.getNumber())

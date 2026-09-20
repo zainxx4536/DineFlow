@@ -88,3 +88,7 @@ dineflow:
     notifyUrl: ${dineflow.wechat.notifyUrl}
     # 退款结果回调到你服务器的 URL
     refundNotifyUrl: ${dineflow.wechat.refundNotifyUrl}
+  baidu-map:
+    ak: ${dineflow.baidu-map.ak}
+    shop-lng: ${dineflow.baidu-map.shop-lng}
+    shop-lat: ${dineflow.baidu-map.shop-lat}

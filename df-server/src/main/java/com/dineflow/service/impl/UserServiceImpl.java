@@ -4,6 +4,7 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.JwtClaimsConstant;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.dto.UserLoginDTO;
 import com.dineflow.entity.User;
 import com.dineflow.entity.WeChatLoginResponse;
@@ -66,7 +67,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         );
 
         if (StrUtil.isBlank(responseJson)) {
-            throw new LoginFailedException("用户登录失败！");
+            throw new LoginFailedException(MessageConstant.LOGIN_FAILED);
         }
 
         // 解析微信响应

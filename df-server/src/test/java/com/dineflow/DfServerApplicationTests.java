@@ -3,7 +3,9 @@ package com.dineflow;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.json.JSONObject;
 import com.dineflow.entity.Employee;
+import com.dineflow.model.Coordinate;
 import com.dineflow.service.IEmployeeService;
+import com.dineflow.utils.BaiduMapClient;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -30,6 +32,9 @@ class DfServerApplicationTests {
 
     @Autowired
     private IEmployeeService employeeService;
+
+    @Autowired
+    private BaiduMapClient baiduMapClient;
 
     @Test
     void contextLoads() {
@@ -102,5 +107,11 @@ class DfServerApplicationTests {
         //5. 关闭资源
         response.close();
         httpClient.close();
+    }
+
+    @Test
+    void testBaiduMapClient() {
+        Coordinate coordinate = baiduMapClient.getCoordinate("重庆市南岸区南山街道崇文路2号六婶火锅店");
+        System.out.println(coordinate);
     }
 }

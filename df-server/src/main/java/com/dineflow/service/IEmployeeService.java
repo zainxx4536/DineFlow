@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.spring.service.IService;
 import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
 import com.dineflow.dto.EmployeePageQueryDTO;
+import com.dineflow.dto.PasswordEditDTO;
 import com.dineflow.entity.Employee;
 import com.dineflow.result.PageResult;
 import com.dineflow.vo.EmployeeLoginVO;
@@ -29,4 +30,8 @@ public interface IEmployeeService extends IService<Employee> {
     void editEmpInfo(EmployeeDTO employeeDTO);
 
     Employee getEmpInfoById(Long id);
+
+    void editEmpPassword(PasswordEditDTO passwordEditDTO);
+
+    void empLogout();
 }

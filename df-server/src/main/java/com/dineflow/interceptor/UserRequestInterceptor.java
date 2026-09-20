@@ -4,6 +4,7 @@ package com.dineflow.interceptor;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpStatus;
 import com.dineflow.constant.JwtClaimsConstant;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.properties.JwtProperties;
 import com.dineflow.utils.JwtUtil;
 import com.dineflow.utils.ThreadLocalUtil;
@@ -46,7 +47,7 @@ public class UserRequestInterceptor implements HandlerInterceptor {
         );
 
         if (StrUtil.isBlank(token)) {
-            log.info("用户令牌为空");
+            log.info(MessageConstant.USER_NOT_LOGIN);
             response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
             return false;
         }

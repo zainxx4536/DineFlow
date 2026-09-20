@@ -7,6 +7,7 @@ import com.aliyun.sdk.service.oss2.credentials.EnvironmentVariableCredentialsPro
 import com.aliyun.sdk.service.oss2.models.PutObjectRequest;
 import com.aliyun.sdk.service.oss2.models.PutObjectResult;
 import com.aliyun.sdk.service.oss2.transport.BinaryData;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.exception.UploadFileFailedException;
 import com.dineflow.exception.UploadFileIsNullException;
 import com.dineflow.properties.AliOssProperties;
@@ -96,7 +97,7 @@ public class AliOssUtil {
 
         } catch (Exception e) {
             log.error(
-                    "OSS 文件上传失败，文件名：{}",
+                    MessageConstant.UPLOAD_FAILED + "，文件名：{}",
                     originalFilename,
                     e
             );

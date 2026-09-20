@@ -8,8 +8,10 @@ public class MessageConstant {
     public static final String PASSWORD_ERROR = "密码错误";
     public static final String ACCOUNT_NOT_FOUND = "账号不存在";
     public static final String ACCOUNT_LOCKED = "账号被锁定";
+    public static final String NEW_PASSWORD_SAME_AS_OLD = "新旧密码不能相同";
     public static final String UNKNOWN_ERROR = "未知错误";
     public static final String USER_NOT_LOGIN = "用户未登录";
+    public static final String EMPLOYEE_NOT_LOGIN = "员工未登录";
     public static final String CATEGORY_BE_RELATED_BY_SETMEAL = "当前分类关联了套餐,不能删除";
     public static final String CATEGORY_BE_RELATED_BY_DISH = "当前分类关联了菜品,不能删除";
     public static final String SHOPPING_CART_IS_NULL = "购物车数据为空，不能下单";
@@ -24,5 +26,6 @@ public class MessageConstant {
     public static final String ORDER_STATUS_ERROR = "订单状态错误";
     public static final String ORDER_NOT_FOUND = "订单不存在";
     public static final String ALREADY_EXISTS = "用户名已存在";
+    public static final String DISTANCE_MORE_THAN_5KM = "收货地址超过5KM";
 
 }

@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.SetmealDTO;
@@ -103,7 +104,7 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
                 .eq(Setmeal::getStatus, StatusConstant.ENABLE)
                 .exists();
         if (exists) {
-            throw new DeletionNotAllowedException("起售中套餐不能删除！");
+            throw new DeletionNotAllowedException(MessageConstant.SETMEAL_ON_SALE);
         }
         //删除套餐
         removeByIds(ids);
@@ -212,7 +213,7 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
                     .exists();
 
             if (exists) {
-                throw new SetmealEnableFailedException("套餐中含停售菜品，不允许起售套餐!");
+                throw new SetmealEnableFailedException(MessageConstant.SETMEAL_ENABLE_FAILED);
             }
         }
 

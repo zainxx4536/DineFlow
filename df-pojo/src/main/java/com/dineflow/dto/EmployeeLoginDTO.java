@@ -13,5 +13,4 @@ public class EmployeeLoginDTO implements Serializable {
     private String username;
     @ApiModelProperty("密码")
     private String password;
-
 }

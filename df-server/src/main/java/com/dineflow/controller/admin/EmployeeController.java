@@ -4,6 +4,7 @@ package com.dineflow.controller.admin;
 import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
 import com.dineflow.dto.EmployeePageQueryDTO;
+import com.dineflow.dto.PasswordEditDTO;
 import com.dineflow.entity.Employee;
 import com.dineflow.result.PageResult;
 import com.dineflow.result.Result;
@@ -39,7 +40,6 @@ public class EmployeeController {
     @ApiOperation("员工登录")
     public Result<EmployeeLoginVO> login(@RequestBody EmployeeLoginDTO employeeLoginDTO) {
         log.info("员工登录：{}", employeeLoginDTO);
-        //将请求数据传入业务层进行处理
         EmployeeLoginVO employeeLoginVO = employeeService.login(employeeLoginDTO);
         return Result.success(employeeLoginVO);
     }
@@ -88,7 +88,6 @@ public class EmployeeController {
         return Result.success(employee);
     }
 
-
     /**
      * 修改员工信息
      */
@@ -97,6 +96,28 @@ public class EmployeeController {
     public Result<String> editEmpInfo(@RequestBody EmployeeDTO employeeDTO) {
         log.info("编辑员工信息：{}", employeeDTO);
         employeeService.editEmpInfo(employeeDTO);
+        return Result.success();
+    }
+
+    /**
+     * 修改密码
+     */
+    @PutMapping("/editPassword")
+    @ApiOperation("修改密码")
+    public Result<String> editEmpPassword(@RequestBody PasswordEditDTO passwordEditDTO) {
+        log.info("修改密码");
+        employeeService.editEmpPassword(passwordEditDTO);
+        return Result.success();
+    }
+
+    /**
+     * 退出登录
+     */
+    @PostMapping("/logout")
+    @ApiOperation("退出登录")
+    public Result<String> empLogout() {
+        log.info("退出登录");
+        employeeService.empLogout();
         return Result.success();
     }
 }

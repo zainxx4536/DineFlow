@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.DishDTO;
@@ -95,7 +96,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
                 .eq(Dish::getStatus, StatusConstant.ENABLE)
                 .exists();
         if (enable) {
-            throw new DeletionNotAllowedException("起售中的菜品不可删除!");
+            throw new DeletionNotAllowedException(MessageConstant.DISH_ON_SALE);
         }
 
         //再判断是否有套餐中包含的菜品，若有则不可删除
@@ -103,7 +104,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
                 .in(SetmealDish::getDishId, ids)
                 .exists();
         if (contained) {
-            throw new DeletionNotAllowedException("菜品已被套餐关联，不可删除!");
+            throw new DeletionNotAllowedException(MessageConstant.DISH_BE_RELATED_BY_SETMEAL);
         }
 
         //删除菜品

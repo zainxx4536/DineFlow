@@ -39,7 +39,6 @@ public class CategoryController {
      */
     @PostMapping
     @ApiOperation("新增分类")
-    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> addNewCategory(@RequestBody CategoryDTO categoryDTO) {
         log.info("新增分类：{}", categoryDTO);
         categoryService.addNewCategory(categoryDTO);
@@ -74,7 +73,6 @@ public class CategoryController {
      */
     @PutMapping
     @ApiOperation("修改分类")
-    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> modifyCategory(@RequestBody CategoryDTO categoryDTO) {
         log.info("修改分类：{}", categoryDTO);
         categoryService.modifyCategory(categoryDTO);
@@ -86,7 +84,6 @@ public class CategoryController {
      */
     @PostMapping("/status/{status}")
     @ApiOperation("修改分类状态")
-    @CacheEvict(cacheNames = RedisKeyConstant.CATEGORY_LIST, allEntries = true)
     public Result<String> modifyCategoryStatus(@PathVariable Integer status, Long id) {
         log.info("修改分类状态：{}，{}", id, status);
         categoryService.modifyCategoryStatus(id, status);

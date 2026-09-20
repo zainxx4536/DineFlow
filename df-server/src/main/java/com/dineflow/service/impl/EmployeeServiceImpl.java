@@ -13,6 +13,7 @@ import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.EmployeeDTO;
 import com.dineflow.dto.EmployeeLoginDTO;
 import com.dineflow.dto.EmployeePageQueryDTO;
+import com.dineflow.dto.PasswordEditDTO;
 import com.dineflow.entity.Employee;
 import com.dineflow.exception.AccountLockedException;
 import com.dineflow.exception.AccountNotFoundException;
@@ -165,5 +166,45 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
     public void editEmpInfo(EmployeeDTO employeeDTO) {
         Employee employee = BeanUtil.copyProperties(employeeDTO, Employee.class);
         updateById(employee);
+    }
+
+    /**
+     * 修改密码
+     */
+    @Override
+    public void editEmpPassword(PasswordEditDTO passwordEditDTO) {
+
+        Long empId = ThreadLocalUtil.getCurrentId();
+
+        Employee employee = getById(empId);
+
+        if (employee == null) {
+            throw new AccountNotFoundException(MessageConstant.ACCOUNT_NOT_FOUND);
+        }
+
+        // 校验旧密码
+        if (!passwordEncoder.matches(passwordEditDTO.getOldPassword(), employee.getPassword())) {
+            throw new PasswordErrorException(MessageConstant.PASSWORD_EDIT_FAILED);
+        }
+
+        // 新旧密码不能相同
+        if (passwordEncoder.matches(passwordEditDTO.getNewPassword(), employee.getPassword())) {
+            throw new PasswordErrorException(MessageConstant.NEW_PASSWORD_SAME_AS_OLD);
+        }
+
+        // 只更新密码，其余公共字段由 MP 自动填充
+        Employee updateEmployee = Employee.builder()
+                .id(empId)
+                .password(passwordEncoder.encode(passwordEditDTO.getNewPassword()))
+                .build();
+
+        updateById(updateEmployee);
+    }
+
+    /**
+     * 退出登录
+     */
+    @Override
+    public void empLogout() {
     }
 }
