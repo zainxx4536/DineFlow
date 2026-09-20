@@ -5,6 +5,9 @@ import com.dineflow.dto.OrdersPageQueryDTO;
 import com.dineflow.entity.Orders;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.dineflow.vo.HistoryOrdersQueryVO;
+import com.dineflow.vo.OrderConditionSearchVO;
+import com.dineflow.vo.OrderOverViewVO;
+import com.dineflow.vo.OrderStatisticsVO;
 import org.apache.ibatis.annotations.Param;
 
 /**
@@ -22,4 +25,8 @@ public interface OrdersMapper extends BaseMapper<Orders> {
             @Param("userId") Long userId,
             @Param("dto") OrdersPageQueryDTO ordersPageQueryDTO
     );
+
+    Page<OrderConditionSearchVO> orderConditionSearch(Page<OrderConditionSearchVO> page, OrdersPageQueryDTO dto);
+
+    OrderStatisticsVO orderStatistics();
 }

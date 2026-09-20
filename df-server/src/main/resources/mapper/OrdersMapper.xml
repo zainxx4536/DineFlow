@@ -3,18 +3,52 @@
 <mapper namespace="com.dineflow.mapper.OrdersMapper">
 
     <select id="historyOrdersQuery" resultType="com.dineflow.vo.HistoryOrdersQueryVO">
-        select
-        o.*
-        from orders o
-
+        select o.* from orders o
         <where>
             o.user_id = #{userId}
-
             <if test="dto.status != null">
                 and o.status = #{dto.status}
             </if>
         </where>
-
         order by o.order_time desc, o.id desc
+    </select>
+
+    <select id="orderConditionSearch" resultType="com.dineflow.vo.OrderConditionSearchVO">
+        select o.* from orders o
+        <where>
+            <if test="dto.status != null">
+                and o.status = #{dto.status}
+            </if>
+            <if test="dto.beginTime != null">
+                and o.order_time > #{dto.beginTime}
+            </if>
+            <if test="dto.endTime != null">
+                and o.order_time &amp;lt #{dto.endTime}
+            </if>
+            <if test="dto.number != null">
+                and o.status = #{dto.number}
+            </if>
+            <if test="dto.phone != null">
+                and o.phone = #{dto.phone}
+            </if>
+        </where>
+        order by o.order_time desc, o.id desc
+    </select>
+
+    <select id="orderStatistics" resultType="com.dineflow.vo.OrderStatisticsVO">
+        select
+            coalesce(sum(case
+                             when status = 2 then 1
+                             else 0
+                end), 0) as toBeConfirmed,
+            coalesce(sum(case
+                             when status = 3 then 1
+                             else 0
+                end), 0) as confirmed,
+            coalesce(sum(case
+                             when status = 4 then 1
+                             else 0
+                end), 0) as deliveryInProgress
+        from orders
     </select>
 </mapper>

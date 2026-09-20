@@ -6,10 +6,7 @@ import com.dineflow.dto.OrdersPaymentDTO;
 import com.dineflow.dto.OrdersSubmitDTO;
 import com.dineflow.entity.Orders;
 import com.dineflow.result.PageResult;
-import com.dineflow.vo.HistoryOrdersQueryVO;
-import com.dineflow.vo.OrderDetailVO;
-import com.dineflow.vo.OrderPaymentVO;
-import com.dineflow.vo.OrderSubmitVO;
+import com.dineflow.vo.*;
 import com.wechat.pay.java.service.payments.model.Transaction;
 
 /**
@@ -35,4 +32,8 @@ public interface IOrdersService extends IService<Orders> {
     void cancelOrder(Long id);
 
     void oneMoreOrder(Long id);
+
+    PageResult<OrderConditionSearchVO> orderConditionSearch(OrdersPageQueryDTO ordersPageQueryDTO);
+
+    OrderStatisticsVO orderStatistics();
 }

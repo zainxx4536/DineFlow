@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.*;
  * @author zainxx
  * @since 2026-09-08
  */
-@RestController
+@RestController("userOrdersController")
 @RequestMapping("/user/order")
 @Slf4j
 @RequiredArgsConstructor

@@ -2,10 +2,7 @@ package com.dineflow.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -24,23 +21,18 @@ import com.dineflow.service.IOrdersService;
 import com.dineflow.utils.RedisIdWorker;
 import com.dineflow.utils.ThreadLocalUtil;
 import com.dineflow.utils.WeChatPayUtil;
-import com.dineflow.vo.HistoryOrdersQueryVO;
-import com.dineflow.vo.OrderDetailVO;
-import com.dineflow.vo.OrderPaymentVO;
-import com.dineflow.vo.OrderSubmitVO;
+import com.dineflow.vo.*;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 /**
@@ -66,7 +58,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     private final OrdersMapper ordersMapper;
 
     /**
-     * 用户提交订单
+     * C端-用户提交订单
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -136,7 +128,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     }
 
     /**
-     * 订单支付
+     * C端-订单支付
      */
     @Override
     public OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO) {
@@ -204,7 +196,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     }
 
     /**
-     * 支付成功回调
+     * C端-支付成功回调
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -301,7 +293,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     }
 
     /**
-     * 历史订单查询
+     * C端-历史订单查询
      */
     @Override
     public PageResult<HistoryOrdersQueryVO> historyOrdersQuery(OrdersPageQueryDTO ordersPageQueryDTO) {
@@ -350,7 +342,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     }
 
     /**
-     * 查询订单详情
+     * C端-查询订单详情
      */
     @Override
     public OrderDetailVO getOrderDetail(Long id) {
@@ -381,7 +373,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     }
 
     /**
-     * 取消订单
+     * C端-取消订单
      */
     @Override
     public void cancelOrder(Long id) {
@@ -420,7 +412,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     }
 
     /**
-     * 再来一单
+     * C端-再来一单
      */
     @Override
     public void oneMoreOrder(Long id) {
@@ -469,5 +461,58 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .toList();
 
         Db.saveBatch(shoppingCartList);
+    }
+
+    /**
+     * 管理端-订单搜索
+     */
+    @Override
+    public PageResult<OrderConditionSearchVO> orderConditionSearch(OrdersPageQueryDTO dto) {
+
+        // 1. 条件分页查询订单
+        Page<OrderConditionSearchVO> page = Page.of(dto.getPage(), dto.getPageSize());
+
+        Page<OrderConditionSearchVO> resultPage = ordersMapper.orderConditionSearch(page, dto);
+
+        List<OrderConditionSearchVO> records = resultPage.getRecords();
+
+        // 当前页无数据
+        if (CollUtil.isEmpty(records)) {
+            return new PageResult<>(resultPage.getTotal(), records);
+        }
+
+        // 2. 获取当前页所有订单 ID
+        List<Long> orderIds = records.stream()
+                .map(OrderConditionSearchVO::getId)
+                .toList();
+
+        // 3. 批量查询当前页所有订单明细
+        List<OrderDetail> orderDetailList = Db.lambdaQuery(OrderDetail.class)
+                .in(OrderDetail::getOrderId, orderIds)
+                .list();
+
+        // 4. 按订单 ID 分组
+        Map<Long, List<OrderDetail>> detailMap = orderDetailList.stream()
+                .collect(Collectors.groupingBy(OrderDetail::getOrderId));
+
+        // 5. 拼接菜品名称
+        records.forEach(record -> {
+            String orderDishes = detailMap.getOrDefault(record.getId(), Collections.emptyList())
+                    .stream()
+                    .map(OrderDetail::getName)
+                    .collect(Collectors.joining(","));
+
+            record.setOrderDishes(orderDishes);
+        });
+
+        return new PageResult<>(resultPage.getTotal(), records);
+    }
+
+    /**
+     * 各个状态的订单数量统计
+     */
+    @Override
+    public OrderStatisticsVO orderStatistics() {
+        return ordersMapper.orderStatistics();
     }
 }
