@@ -7,9 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.MessageConstant;
-import com.dineflow.dto.OrdersPageQueryDTO;
-import com.dineflow.dto.OrdersPaymentDTO;
-import com.dineflow.dto.OrdersSubmitDTO;
+import com.dineflow.dto.*;
 import com.dineflow.entity.*;
 import com.dineflow.exception.AddressBookBusinessException;
 import com.dineflow.exception.OrderBusinessException;
@@ -24,6 +22,7 @@ import com.dineflow.utils.WeChatPayUtil;
 import com.dineflow.vo.*;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.refund.model.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -218,7 +217,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .one();
 
         if (order == null) {
-            throw new OrderBusinessException("订单不存在");
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
         // 3. 幂等判断
@@ -356,7 +355,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .one();
 
         if (order == null) {
-            throw new OrderBusinessException("订单不存在");
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
         // 查询订单明细
@@ -387,7 +386,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .one();
 
         if (order == null) {
-            throw new OrderBusinessException("订单不存在");
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
         // 2. 校验订单状态
@@ -514,5 +513,219 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     @Override
     public OrderStatisticsVO orderStatistics() {
         return ordersMapper.orderStatistics();
+    }
+
+    /**
+     * 完成订单
+     */
+    @Override
+    public void completeOrder(Long id) {
+        // 只有派送中的订单才能点击完成订单
+        boolean success = lambdaUpdate()
+                .eq(Orders::getId, id)
+                .eq(Orders::getStatus, Orders.DELIVERY_IN_PROGRESS)
+                .set(Orders::getStatus, Orders.COMPLETED)
+                .set(Orders::getDeliveryTime, LocalDateTime.now())
+                .update();
+
+        if (!success) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+    }
+
+    /**
+     * 管理端取消订单
+     */
+    @Override
+    public void adminCancelOrder(OrdersCancelDTO dto) {
+
+        // 1. 查询订单
+        Orders order = getById(dto.getId());
+
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        // 2. 已完成、已取消订单不能取消
+        if (Orders.COMPLETED.equals(order.getStatus())
+                || Orders.CANCELLED.equals(order.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+
+        Integer payStatus = order.getPayStatus();
+
+        // 3. 已支付订单先申请退款
+        if (Orders.PAID.equals(payStatus)) {
+
+            /* todo 退款
+            // 同一订单整单退款固定使用同一个退款单号
+            String refundNumber = "RF" + order.getNumber();
+
+            Refund refund = weChatPayUtil.refund(
+                    order.getNumber(),
+                    refundNumber,
+                    order.getAmount(),
+                    order.getAmount(),
+                    dto.getCancelReason()
+            );
+
+            if (refund == null) {
+                throw new OrderBusinessException("退款申请失败");
+            }
+
+            // 只有退款真正成功，才能标记为已退款
+            if (Status.SUCCESS.equals(refund.getStatus())) {
+                payStatus = Orders.REFUND;
+            } else if (Status.PROCESSING.equals(refund.getStatus())) {
+                throw new OrderBusinessException("退款处理中，请稍后查看退款结果");
+            } else {
+                throw new OrderBusinessException("退款失败，退款状态：" + refund.getStatus());
+            }
+            */
+
+            payStatus = Orders.REFUND;
+
+        }
+
+        // 4. 更新订单
+        boolean success = lambdaUpdate()
+                .eq(Orders::getId, dto.getId())
+                .eq(Orders::getStatus, order.getStatus())
+                .set(Orders::getStatus, Orders.CANCELLED)
+                .set(Orders::getPayStatus, payStatus)
+                .set(Orders::getCancelReason, dto.getCancelReason())
+                .set(Orders::getCancelTime, LocalDateTime.now())
+                .update();
+
+        if (!success) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+    }
+
+    /**
+     * 拒单
+     */
+    @Override
+    public void rejectionOrder(OrdersRejectionDTO dto) {
+        // 1. 查询订单
+        Orders order = getById(dto.getId());
+
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        // 2. 只有待接单订单才能拒单
+        if (!Orders.TO_BE_CONFIRMED.equals(order.getStatus())) {
+            throw new OrderBusinessException("当前订单状态不可拒单");
+        }
+
+        Integer payStatus = order.getPayStatus();
+
+        // 3. 已支付订单，需要退款
+        if (Orders.PAID.equals(payStatus)) {
+            /*
+            String refundNumber = "RF" + order.getNumber();
+
+            Refund refund = weChatPayUtil.refund(
+                    order.getNumber(),
+                    refundNumber,
+                    order.getAmount(),
+                    order.getAmount(),
+                    dto.getRejectionReason()
+            );
+
+            if (refund == null) {
+                throw new OrderBusinessException("退款申请失败");
+            }
+
+            // 退款成功后再修改支付状态
+            if (Status.SUCCESS.equals(refund.getStatus())) {
+                payStatus = Orders.REFUND;
+            } else {
+                throw new OrderBusinessException(
+                        "退款未完成，当前退款状态：" + refund.getStatus()
+                );
+            }
+            */
+
+            payStatus = Orders.REFUND;
+
+        }
+
+        // 4. 更新订单状态
+        boolean success = lambdaUpdate()
+                .eq(Orders::getId, dto.getId())
+                .eq(Orders::getStatus, Orders.TO_BE_CONFIRMED)
+                .set(Orders::getStatus, Orders.CANCELLED)
+                .set(Orders::getPayStatus, payStatus)
+                .set(Orders::getRejectionReason, dto.getRejectionReason())
+                .set(Orders::getCancelTime, LocalDateTime.now())
+                .update();
+
+        if (!success) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+    }
+
+    /**
+     * 接单
+     */
+    @Override
+    public void confirmOrder(OrdersConfirmDTO ordersConfirmDTO) {
+
+        Long id = ordersConfirmDTO.getId();
+
+        // 只有待接单订单才能接单
+        boolean success = lambdaUpdate()
+                .eq(Orders::getId, id)
+                .eq(Orders::getStatus, Orders.TO_BE_CONFIRMED)
+                .set(Orders::getStatus, Orders.CONFIRMED)
+                .update();
+
+        if (!success) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+    }
+
+    /**
+     * 管理端-查询订单详情
+     */
+    @Override
+    public OrderDetailVO adminGetOrderDetail(Long id) {
+        Orders order = getById(id);
+
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        // 查询订单详情
+        List<OrderDetail> orderDetailList = Db.lambdaQuery(OrderDetail.class)
+                .eq(OrderDetail::getOrderId, id)
+                .list();
+
+        OrderDetailVO orderDetailVO = BeanUtil.copyProperties(order, OrderDetailVO.class);
+
+        orderDetailVO.setOrderDetailList(orderDetailList);
+        return orderDetailVO;
+    }
+
+    /**
+     * 派送订单
+     */
+    @Override
+    public void deliveryOrder(Long id) {
+
+        // 只有已接单的订单才能开始派送
+        boolean success = lambdaUpdate()
+                .eq(Orders::getId, id)
+                .eq(Orders::getStatus, Orders.CONFIRMED)
+                .set(Orders::getStatus, Orders.DELIVERY_IN_PROGRESS)
+                .update();
+
+        if (!success) {
+            throw new OrderBusinessException(
+                    MessageConstant.ORDER_STATUS_ERROR
+            );
+        }
     }
 }

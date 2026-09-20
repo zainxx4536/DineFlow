@@ -1,9 +1,7 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
-import com.dineflow.dto.OrdersPageQueryDTO;
-import com.dineflow.dto.OrdersPaymentDTO;
-import com.dineflow.dto.OrdersSubmitDTO;
+import com.dineflow.dto.*;
 import com.dineflow.entity.Orders;
 import com.dineflow.result.PageResult;
 import com.dineflow.vo.*;
@@ -36,4 +34,16 @@ public interface IOrdersService extends IService<Orders> {
     PageResult<OrderConditionSearchVO> orderConditionSearch(OrdersPageQueryDTO ordersPageQueryDTO);
 
     OrderStatisticsVO orderStatistics();
+
+    void completeOrder(Long id);
+
+    void adminCancelOrder(OrdersCancelDTO ordersCancelDTO);
+
+    void rejectionOrder(OrdersRejectionDTO ordersRejectionDTO);
+
+    void confirmOrder(OrdersConfirmDTO ordersConfirmDTO);
+
+    OrderDetailVO adminGetOrderDetail(Long id);
+
+    void deliveryOrder(Long id);
 }
