@@ -33,6 +33,7 @@
         <httpclient5>5.5</httpclient5>
         <httpcore5>5.3.4</httpcore5>
         <httpcore5-h2>5.3.4</httpcore5-h2>
+        <wechatpay>0.2.17</wechatpay>
     </properties>
 
     <dependencyManagement>
@@ -118,8 +119,8 @@
             <!--微信支付-->
             <dependency>
                 <groupId>com.github.wechatpay-apiv3</groupId>
-                <artifactId>wechatpay-apache-httpclient</artifactId>
-                <version>0.4.8</version>
+                <artifactId>wechatpay-java</artifactId>
+                <version>${wechatpay}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

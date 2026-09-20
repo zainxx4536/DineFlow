@@ -38,6 +38,12 @@ public class Orders implements Serializable {
     public static final Integer PAID = 1;
     public static final Integer REFUND = 2;
 
+    /**
+     * 支付方式 1微信 2支付宝
+     */
+    public static final Integer wechatPay = 1;
+    public static final Integer aliPay = 2;
+
     @Serial
     private static final long serialVersionUID = 1L;
 
@@ -88,4 +94,8 @@ public class Orders implements Serializable {
     private int tablewareNumber;
     //餐具数量状态  1按餐量提供  0选择具体数量
     private Integer tablewareStatus;
+    /**
+     * 微信支付交易号
+     */
+    private String transactionId;
 }

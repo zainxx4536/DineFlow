@@ -1,5 +1,8 @@
 package com.dineflow.utils;
 
+/**
+ * ThreadLocal 工具类，存储当前操作员工、用户的ID
+ */
 public class ThreadLocalUtil {
 
     public static ThreadLocal<Long> threadLocal = new ThreadLocal<>();

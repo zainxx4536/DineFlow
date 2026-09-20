@@ -69,3 +69,22 @@ dineflow:
   wechat:
     appid: ${dineflow.wechat.appid}
     secret: ${dineflow.wechat.secret}
+    pay:
+      # 根据这个值决定要不要加载微信支付配置类
+      enabled: false
+    # 微信支付商户号
+    mchid: ${dineflow.wechat.mchid}
+    # 商户 API 证书的序列号
+    mch-serial-no: ${dineflow.wechat.mch-serial-no}
+    # 商户私钥文件（存储在本地）
+    private-key-file-path: ${dineflow.wechat.private-key-file-path}
+    # APIv3 对称密钥，用于回调解密等（自己在平台设置）
+    api-v3-key: ${dineflow.wechat.api-v3-key}
+    # 微信支付公钥 pem 文件（存储在本地）
+    public-key-file-path: ${dineflow.wechat.public-key-file-path}
+    # 微信支付公钥 ID
+    public-key-id: ${dineflow.wechat.public-key-id}
+    # 支付结果回调到服务器的 URL
+    notifyUrl: ${dineflow.wechat.notifyUrl}
+    # 退款结果回调到你服务器的 URL
+    refundNotifyUrl: ${dineflow.wechat.refundNotifyUrl}
