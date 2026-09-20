@@ -32,11 +32,12 @@ public class Orders implements Serializable {
     public static final Integer CANCELLED = 6;
 
     /**
-     * 支付状态 0未支付 1已支付 2退款
+     * 支付状态 0未支付 1已支付 2退款 3退款中
      */
     public static final Integer UN_PAID = 0;
     public static final Integer PAID = 1;
     public static final Integer REFUND = 2;
+    public static final Integer REFUNDING = 3;
 
     /**
      * 支付方式 1微信 2支付宝

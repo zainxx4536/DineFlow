@@ -6,6 +6,7 @@ import com.dineflow.entity.Orders;
 import com.dineflow.result.PageResult;
 import com.dineflow.vo.*;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.refund.model.RefundNotification;
 
 /**
  * <p>
@@ -46,4 +47,6 @@ public interface IOrdersService extends IService<Orders> {
     OrderDetailVO adminGetOrderDetail(Long id);
 
     void deliveryOrder(Long id);
+
+    void handleRefundNotify(RefundNotification notification);
 }

@@ -22,6 +22,7 @@ import com.dineflow.utils.WeChatPayUtil;
 import com.dineflow.vo.*;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.refund.model.RefundNotification;
 import com.wechat.pay.java.service.refund.model.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -394,10 +395,32 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new OrderBusinessException("当前订单状态不可取消");
         }
 
-        // 3. 已支付订单涉及退款，当前版本暂不支持
-        // todo 退款
-        if (Orders.PAID.equals(order.getPayStatus())) {
-            throw new OrderBusinessException("已支付订单暂不支持取消");
+        Integer payStatus = order.getPayStatus();
+
+        // 3. 已支付订单进行退款
+        if (Orders.PAID.equals(payStatus)) {
+            /*
+            Refund refund = weChatPayUtil.refund(
+                    order.getNumber(),
+                    "RF" + order.getNumber(),
+                    order.getAmount(),
+                    order.getAmount(),
+                    reason
+            );
+
+            Integer payStatus;
+
+            if (Status.SUCCESS.equals(refund.getStatus())) {
+                payStatus = Orders.REFUND;
+            } else if (Status.PROCESSING.equals(refund.getStatus())) {
+                payStatus = Orders.REFUNDING;
+            } else {
+                throw new OrderBusinessException("退款申请失败，退款状态：" + refund.getStatus());
+            }
+            */
+
+            // 模拟退款成功
+            payStatus = Orders.REFUND;
         }
 
         // 4. 更新订单状态
@@ -407,6 +430,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .set(Orders::getStatus, Orders.CANCELLED)
                 .set(Orders::getCancelReason, "用户取消订单")
                 .set(Orders::getCancelTime, LocalDateTime.now())
+                .set(Orders::getPayStatus, payStatus)
                 .update();
     }
 
@@ -556,33 +580,28 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         // 3. 已支付订单先申请退款
         if (Orders.PAID.equals(payStatus)) {
-
-            /* todo 退款
+            /*
             // 同一订单整单退款固定使用同一个退款单号
-            String refundNumber = "RF" + order.getNumber();
-
             Refund refund = weChatPayUtil.refund(
                     order.getNumber(),
-                    refundNumber,
+                    "RF" + order.getNumber(),
                     order.getAmount(),
                     order.getAmount(),
-                    dto.getCancelReason()
+                    reason
             );
 
-            if (refund == null) {
-                throw new OrderBusinessException("退款申请失败");
-            }
+            Integer payStatus;
 
-            // 只有退款真正成功，才能标记为已退款
             if (Status.SUCCESS.equals(refund.getStatus())) {
                 payStatus = Orders.REFUND;
             } else if (Status.PROCESSING.equals(refund.getStatus())) {
-                throw new OrderBusinessException("退款处理中，请稍后查看退款结果");
+                payStatus = Orders.REFUNDING;
             } else {
-                throw new OrderBusinessException("退款失败，退款状态：" + refund.getStatus());
+                throw new OrderBusinessException("退款申请失败，退款状态：" + refund.getStatus());
             }
             */
 
+            // 模拟退款成功
             payStatus = Orders.REFUND;
 
         }
@@ -624,27 +643,22 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 3. 已支付订单，需要退款
         if (Orders.PAID.equals(payStatus)) {
             /*
-            String refundNumber = "RF" + order.getNumber();
-
             Refund refund = weChatPayUtil.refund(
                     order.getNumber(),
-                    refundNumber,
+                    "RF" + order.getNumber(),
                     order.getAmount(),
                     order.getAmount(),
-                    dto.getRejectionReason()
+                    reason
             );
 
-            if (refund == null) {
-                throw new OrderBusinessException("退款申请失败");
-            }
+            Integer payStatus;
 
-            // 退款成功后再修改支付状态
             if (Status.SUCCESS.equals(refund.getStatus())) {
                 payStatus = Orders.REFUND;
+            } else if (Status.PROCESSING.equals(refund.getStatus())) {
+                payStatus = Orders.REFUNDING;
             } else {
-                throw new OrderBusinessException(
-                        "退款未完成，当前退款状态：" + refund.getStatus()
-                );
+                throw new OrderBusinessException("退款申请失败，退款状态：" + refund.getStatus());
             }
             */
 
@@ -727,5 +741,106 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                     MessageConstant.ORDER_STATUS_ERROR
             );
         }
+    }
+
+    /**
+     * 处理微信退款结果回调
+     */
+    @Override
+    public void handleRefundNotify(RefundNotification notification) {
+
+        String orderNumber = notification.getOutTradeNo();
+
+        // 1. 根据商户订单号查询订单
+        Orders order = lambdaQuery()
+                .eq(Orders::getNumber, orderNumber)
+                .one();
+
+        if (order == null) {
+            throw new OrderBusinessException("退款订单不存在");
+        }
+
+        // 2. 幂等处理
+        // 微信可能重复通知，已经退款成功直接返回
+        if (Orders.REFUND.equals(order.getPayStatus())) {
+            return;
+        }
+
+        // 3. 校验退款金额
+        if (notification.getAmount() == null || notification.getAmount().getRefund() == null) {
+            throw new OrderBusinessException("退款金额异常");
+        }
+
+        long refundAmount = notification
+                .getAmount()
+                .getRefund();
+
+        long orderAmount = order.getAmount()
+                .movePointRight(2)
+                .longValueExact();
+
+        if (refundAmount != orderAmount) {
+            throw new OrderBusinessException("退款金额与订单金额不一致");
+        }
+
+        // 4. 根据微信最终退款状态处理
+        Status refundStatus = notification.getRefundStatus();
+
+        if (Status.SUCCESS.equals(refundStatus)) {
+            boolean success = lambdaUpdate()
+                    .eq(Orders::getId, order.getId())
+                    .in(
+                            Orders::getPayStatus,
+                            Orders.PAID,
+                            Orders.REFUNDING
+                    )
+                    .set(
+                            Orders::getPayStatus,
+                            Orders.REFUND
+                    )
+                    .update();
+
+            // 如果已经被重复回调处理，不需要认为业务失败
+            if (!success) {
+                Orders latestOrder = getById(order.getId());
+                if (!Orders.REFUND.equals(latestOrder.getPayStatus())) {
+                    throw new OrderBusinessException("订单退款状态更新失败");
+                }
+            }
+
+            log.info(
+                    "订单退款成功，orderNumber={}, refundNumber={}",
+                    notification.getOutTradeNo(),
+                    notification.getOutRefundNo()
+            );
+
+            return;
+        }
+
+        if (Status.PROCESSING.equals(refundStatus)) {
+            // 仍然退款中，无需标记已退款
+            lambdaUpdate()
+                    .eq(Orders::getId, order.getId())
+                    .eq(Orders::getPayStatus, Orders.PAID)
+                    .set(
+                            Orders::getPayStatus,
+                            Orders.REFUNDING
+                    )
+                    .update();
+
+            return;
+        }
+
+        // CLOSED / ABNORMAL
+        log.error(
+                "订单退款异常，orderNumber={}, refundNumber={}, status={}",
+                notification.getOutTradeNo(),
+                notification.getOutRefundNo(),
+                refundStatus
+        );
+
+        throw new OrderBusinessException(
+                "微信退款状态异常：" + refundStatus
+        );
     }
 }
