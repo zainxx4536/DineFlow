@@ -1,7 +1,11 @@
 package com.dineflow.mapper;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dineflow.dto.OrdersPageQueryDTO;
 import com.dineflow.entity.Orders;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.dineflow.vo.HistoryOrdersQueryVO;
+import org.apache.ibatis.annotations.Param;
 
 /**
  * <p>
@@ -13,4 +17,9 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  */
 public interface OrdersMapper extends BaseMapper<Orders> {
 
+    Page<HistoryOrdersQueryVO> historyOrdersQuery(
+            Page<HistoryOrdersQueryVO> page,
+            @Param("userId") Long userId,
+            @Param("dto") OrdersPageQueryDTO ordersPageQueryDTO
+    );
 }

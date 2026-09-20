@@ -4,9 +4,13 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.MessageConstant;
+import com.dineflow.dto.OrdersPageQueryDTO;
 import com.dineflow.dto.OrdersPaymentDTO;
 import com.dineflow.dto.OrdersSubmitDTO;
 import com.dineflow.entity.*;
@@ -15,10 +19,13 @@ import com.dineflow.exception.OrderBusinessException;
 import com.dineflow.exception.ShoppingCartBusinessException;
 import com.dineflow.mapper.OrdersMapper;
 import com.dineflow.properties.WeChatProperties;
+import com.dineflow.result.PageResult;
 import com.dineflow.service.IOrdersService;
 import com.dineflow.utils.RedisIdWorker;
 import com.dineflow.utils.ThreadLocalUtil;
 import com.dineflow.utils.WeChatPayUtil;
+import com.dineflow.vo.HistoryOrdersQueryVO;
+import com.dineflow.vo.OrderDetailVO;
 import com.dineflow.vo.OrderPaymentVO;
 import com.dineflow.vo.OrderSubmitVO;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
@@ -32,9 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -55,6 +62,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     private final ObjectProvider<WeChatPayUtil> weChatPayUtilProvider;
 
     private final WeChatProperties weChatProperties;
+
+    private final OrdersMapper ordersMapper;
 
     /**
      * 用户提交订单
@@ -289,5 +298,176 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 来单提醒
         // WebSocket 推送
         // RabbitMQ 消息
+    }
+
+    /**
+     * 历史订单查询
+     */
+    @Override
+    public PageResult<HistoryOrdersQueryVO> historyOrdersQuery(OrdersPageQueryDTO ordersPageQueryDTO) {
+
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        // 1. 分页查询当前用户的订单
+        Page<HistoryOrdersQueryVO> page = Page.of(
+                ordersPageQueryDTO.getPage(),
+                ordersPageQueryDTO.getPageSize()
+        );
+
+        Page<HistoryOrdersQueryVO> resultPage = ordersMapper.historyOrdersQuery(page, userId, ordersPageQueryDTO);
+
+        List<HistoryOrdersQueryVO> records = resultPage.getRecords();
+
+        if (CollUtil.isEmpty(records)) {
+            return new PageResult<>(resultPage.getTotal(), records);
+        }
+
+        // 2. 获取当前页所有订单 id
+        List<Long> orderIds = records.stream()
+                .map(HistoryOrdersQueryVO::getId)
+                .toList();
+
+        // 3. 一次性查询当前页全部订单明细
+        List<OrderDetail> orderDetails = Db.lambdaQuery(OrderDetail.class)
+                .in(OrderDetail::getOrderId, orderIds)
+                .list();
+
+        // 4. 按 orderId 分组
+        Map<Long, List<OrderDetail>> detailMap = orderDetails.stream()
+                .collect(Collectors.groupingBy(OrderDetail::getOrderId));
+
+        // 5. 将订单明细装入对应的 VO
+        records.forEach(order -> {
+            order.setOrderDetailList(
+                    detailMap.getOrDefault(
+                            order.getId(),
+                            Collections.emptyList()
+                    )
+            );
+        });
+
+        return new PageResult<>(resultPage.getTotal(), records);
+    }
+
+    /**
+     * 查询订单详情
+     */
+    @Override
+    public OrderDetailVO getOrderDetail(Long id) {
+
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        // 查询当前用户的订单
+        Orders order = lambdaQuery()
+                .eq(Orders::getUserId, userId)
+                .eq(Orders::getId, id)
+                .one();
+
+        if (order == null) {
+            throw new OrderBusinessException("订单不存在");
+        }
+
+        // 查询订单明细
+        List<OrderDetail> orderDetailList = Db.lambdaQuery(OrderDetail.class)
+                .eq(OrderDetail::getOrderId, id)
+                .list();
+
+        // 组装返回对象
+        OrderDetailVO orderDetailVO = BeanUtil.copyProperties(order, OrderDetailVO.class);
+
+        orderDetailVO.setOrderDetailList(orderDetailList);
+
+        return orderDetailVO;
+    }
+
+    /**
+     * 取消订单
+     */
+    @Override
+    public void cancelOrder(Long id) {
+
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        // 1. 查询当前用户的订单
+        Orders order = lambdaQuery()
+                .eq(Orders::getUserId, userId)
+                .eq(Orders::getId, id)
+                .one();
+
+        if (order == null) {
+            throw new OrderBusinessException("订单不存在");
+        }
+
+        // 2. 校验订单状态
+        if (!Orders.PENDING_PAYMENT.equals(order.getStatus()) && !Orders.TO_BE_CONFIRMED.equals(order.getStatus())) {
+            throw new OrderBusinessException("当前订单状态不可取消");
+        }
+
+        // 3. 已支付订单涉及退款，当前版本暂不支持
+        // todo 退款
+        if (Orders.PAID.equals(order.getPayStatus())) {
+            throw new OrderBusinessException("已支付订单暂不支持取消");
+        }
+
+        // 4. 更新订单状态
+        lambdaUpdate()
+                .eq(Orders::getId, id)
+                .eq(Orders::getUserId, userId)
+                .set(Orders::getStatus, Orders.CANCELLED)
+                .set(Orders::getCancelReason, "用户取消订单")
+                .set(Orders::getCancelTime, LocalDateTime.now())
+                .update();
+    }
+
+    /**
+     * 再来一单
+     */
+    @Override
+    public void oneMoreOrder(Long id) {
+        // 查询原订单及订单明细，将商品重新加入当前用户购物车
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        // 1. 查询当前用户的原订单
+        Orders order = lambdaQuery()
+                .eq(Orders::getId, id)
+                .eq(Orders::getUserId, userId)
+                .one();
+
+        if (order == null) {
+            throw new OrderBusinessException("订单不存在");
+        }
+
+        // 2. 只有已完成或已取消订单允许再来一单
+        if (!Orders.COMPLETED.equals(order.getStatus())
+                && !Orders.CANCELLED.equals(order.getStatus())) {
+            throw new OrderBusinessException("当前订单状态不支持再来一单");
+        }
+
+        // 3. 查询原订单明细
+        List<OrderDetail> orderDetailList =
+                Db.lambdaQuery(OrderDetail.class)
+                        .eq(OrderDetail::getOrderId, id)
+                        .list();
+
+        if (CollUtil.isEmpty(orderDetailList)) {
+            throw new OrderBusinessException("订单明细不存在");
+        }
+
+        // 4. 将订单明细重新放入当前用户购物车
+        List<ShoppingCart> shoppingCartList = orderDetailList.stream()
+                .map(orderDetail -> ShoppingCart.builder()
+                        .userId(userId)
+                        .dishId(orderDetail.getDishId())
+                        .setmealId(orderDetail.getSetmealId())
+                        .dishFlavor(orderDetail.getDishFlavor())
+                        .name(orderDetail.getName())
+                        .image(orderDetail.getImage())
+                        .amount(orderDetail.getAmount())
+                        .number(orderDetail.getNumber())
+                        .createTime(LocalDateTime.now())
+                        .build())
+                .toList();
+
+        Db.saveBatch(shoppingCartList);
     }
 }

@@ -2,4 +2,19 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.dineflow.mapper.OrdersMapper">
 
+    <select id="historyOrdersQuery" resultType="com.dineflow.vo.HistoryOrdersQueryVO">
+        select
+        o.*
+        from orders o
+
+        <where>
+            o.user_id = #{userId}
+
+            <if test="dto.status != null">
+                and o.status = #{dto.status}
+            </if>
+        </where>
+
+        order by o.order_time desc, o.id desc
+    </select>
 </mapper>
