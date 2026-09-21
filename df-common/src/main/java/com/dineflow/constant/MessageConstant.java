@@ -27,5 +27,6 @@ public class MessageConstant {
     public static final String ORDER_NOT_FOUND = "订单不存在";
     public static final String ALREADY_EXISTS = "用户名已存在";
     public static final String DISTANCE_MORE_THAN_5KM = "收货地址超过5KM";
+    public static final String CANCEL_OVERDUE_ORDER = "订单支付超时，自动取消";
 
 }
