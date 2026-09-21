@@ -3,6 +3,7 @@ package com.dineflow.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -22,6 +23,7 @@ import com.dineflow.utils.RedisIdWorker;
 import com.dineflow.utils.ThreadLocalUtil;
 import com.dineflow.utils.WeChatPayUtil;
 import com.dineflow.vo.*;
+import com.dineflow.websocket.WebSocketServer;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
 import com.wechat.pay.java.service.refund.model.RefundNotification;
@@ -60,6 +62,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     private final OrdersMapper ordersMapper;
 
     private final BaiduMapClient baiduMapClient;
+
+    private final WebSocketServer webSocketServer;
 
     public static final double DELIVERY_RANGE_METERS = 5000D;
 
@@ -223,11 +227,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         // 1. 微信支付状态必须为 SUCCESS
         if (transaction.getTradeState() != Transaction.TradeStateEnum.SUCCESS) {
-            log.warn(
-                    "微信支付状态非SUCCESS，订单号：{}，状态：{}",
-                    transaction.getOutTradeNo(),
-                    transaction.getTradeState()
-            );
+            log.warn("微信支付状态非SUCCESS，订单号：{}，状态：{}", transaction.getOutTradeNo(), transaction.getTradeState());
             return;
         }
 
@@ -242,25 +242,18 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         // 3. 幂等判断
         if (Objects.equals(order.getPayStatus(), Orders.PAID)) {
-            log.info(
-                    "订单已完成支付，忽略重复回调，订单号：{}",
-                    order.getNumber()
-            );
+            log.info("订单已完成支付，忽略重复回调，订单号：{}", order.getNumber());
             return;
         }
 
         // 4. 校验商户号
         if (!Objects.equals(transaction.getMchid(), weChatProperties.getMchid())) {
-            throw new OrderBusinessException(
-                    "微信支付商户号不一致"
-            );
+            throw new OrderBusinessException("微信支付商户号不一致");
         }
 
         // 5. 校验 AppId
         if (!Objects.equals(transaction.getAppid(), weChatProperties.getAppid())) {
-            throw new OrderBusinessException(
-                    "微信支付 AppId 不一致"
-            );
+            throw new OrderBusinessException("微信支付 AppId 不一致");
         }
 
         // 6. 校验订单金额
@@ -271,9 +264,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         Integer actualAmount = transaction.getAmount().getTotal();
 
         if (!Objects.equals(expectedAmount, actualAmount)) {
-            throw new OrderBusinessException(
-                    "微信支付金额不一致"
-            );
+            throw new OrderBusinessException("微信支付金额不一致");
         }
 
         // 7. 幂等更新订单：官方明确要求商户系统做好重入/幂等设计；
@@ -293,22 +284,18 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
              * 此处根据项目业务决定：
              * 可以重新查询判断，也可以记录日志。
              */
-            log.info(
-                    "订单支付状态未发生变化，可能已经被其他回调处理，订单号：{}",
-                    order.getNumber()
-            );
+            log.info("订单支付状态未发生变化，可能已经被其他回调处理，订单号：{}", order.getNumber());
         }
 
-        log.info(
-                "订单支付成功，订单号：{}，微信支付交易号：{}",
-                order.getNumber(),
-                transaction.getTransactionId()
-        );
+        log.info("订单支付成功，订单号：{}，微信支付交易号：{}", order.getNumber(), transaction.getTransactionId());
 
-        // 后续：
-        // 来单提醒
-        // WebSocket 推送
-        // RabbitMQ 消息
+        // WebSocket 推送来单提醒
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", 1);
+        message.put("orderId", order.getId());
+        message.put("content", "订单号：" + order.getNumber());
+
+        webSocketServer.sendToAllClient(JSONUtil.toJsonStr(message));
     }
 
     /**
@@ -503,6 +490,43 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .toList();
 
         Db.saveBatch(shoppingCartList);
+    }
+
+    /**
+     * C端-用户催单
+     */
+    @Override
+    public void urgeOrder(Long id) {
+
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        // 查询当前用户自己的订单
+        Orders order = lambdaQuery()
+                .eq(Orders::getId, id)
+                .eq(Orders::getUserId, userId)
+                .one();
+
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        // 只有待接单、已接单、派送中的订单才能催单
+        Integer status = order.getStatus();
+
+        if (!Orders.TO_BE_CONFIRMED.equals(status)
+                && !Orders.CONFIRMED.equals(status)
+                && !Orders.DELIVERY_IN_PROGRESS.equals(status)) {
+
+            throw new OrderBusinessException("当前订单状态不可催单");
+        }
+
+        // 构造 WebSocket 催单消息
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", 2);
+        message.put("orderId", order.getId());
+        message.put("content", "订单号：" + order.getNumber());
+
+        webSocketServer.sendToAllClient(JSONUtil.toJsonStr(message));
     }
 
     /**

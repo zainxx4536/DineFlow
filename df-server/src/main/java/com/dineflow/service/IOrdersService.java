@@ -49,4 +49,6 @@ public interface IOrdersService extends IService<Orders> {
     void deliveryOrder(Long id);
 
     void handleRefundNotify(RefundNotification notification);
+
+    void urgeOrder(Long id);
 }

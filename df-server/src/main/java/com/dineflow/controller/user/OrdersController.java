@@ -99,4 +99,15 @@ public class OrdersController {
         ordersService.oneMoreOrder(id);
         return Result.success();
     }
+
+    /**
+     * 用户催单
+     */
+    @GetMapping("/reminder/{id}")
+    @ApiOperation("用户催单")
+    public Result<String> urgeOrder(@PathVariable Long id) {
+        log.info("用户催单：{}", id);
+        ordersService.urgeOrder(id);
+        return Result.success();
+    }
 }
