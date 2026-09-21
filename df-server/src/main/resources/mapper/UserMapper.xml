@@ -2,4 +2,14 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.dineflow.mapper.UserMapper">
 
+    <select id="newUserStatistics" resultType="com.dineflow.vo.UserDailyVO">
+        select
+            date(create_time) as date,
+            count(*) as newUserCount
+        from `user`
+        where create_time >= #{beginTime}
+          and create_time &lt; #{endTime}
+        group by date(create_time)
+        order by date(create_time)
+    </select>
 </mapper>

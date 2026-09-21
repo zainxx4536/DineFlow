@@ -23,10 +23,10 @@ public class OrderReportVO implements Serializable {
     private String validOrderCountList;
 
     //订单总数
-    private Integer totalOrderCount;
+    private Long totalOrderCount;
 
     //有效订单数
-    private Integer validOrderCount;
+    private Long validOrderCount;
 
     //订单完成率
     private Double orderCompletionRate;

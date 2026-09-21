@@ -4,11 +4,11 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dineflow.dto.OrdersPageQueryDTO;
 import com.dineflow.entity.Orders;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dineflow.vo.HistoryOrdersQueryVO;
-import com.dineflow.vo.OrderConditionSearchVO;
-import com.dineflow.vo.OrderOverViewVO;
-import com.dineflow.vo.OrderStatisticsVO;
+import com.dineflow.vo.*;
 import org.apache.ibatis.annotations.Param;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * <p>
@@ -29,4 +29,10 @@ public interface OrdersMapper extends BaseMapper<Orders> {
     Page<OrderConditionSearchVO> orderConditionSearch(Page<OrderConditionSearchVO> page, OrdersPageQueryDTO dto);
 
     OrderStatisticsVO orderStatistics();
+
+    List<TurnoverDailyVO> turnoverStatistics(LocalDateTime beginTime, LocalDateTime endTime);
+
+    List<OrderDailyVO> dailyOrderStatistics(LocalDateTime beginTime, LocalDateTime endTime);
+
+    List<GoodsSalesTop10VO> getSalesTop10(LocalDateTime beginTime, LocalDateTime endTime);
 }

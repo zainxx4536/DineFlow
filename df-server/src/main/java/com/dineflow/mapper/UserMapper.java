@@ -2,6 +2,10 @@ package com.dineflow.mapper;
 
 import com.dineflow.entity.User;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.dineflow.vo.UserDailyVO;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * <p>
@@ -13,4 +17,5 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  */
 public interface UserMapper extends BaseMapper<User> {
 
+    List<UserDailyVO> newUserStatistics(LocalDateTime beginTime, LocalDateTime endTime);
 }

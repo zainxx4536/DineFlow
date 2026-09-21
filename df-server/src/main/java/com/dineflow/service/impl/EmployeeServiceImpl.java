@@ -201,10 +201,4 @@ public class EmployeeServiceImpl extends ServiceImpl<EmployeeMapper, Employee> i
         updateById(updateEmployee);
     }
 
-    /**
-     * 退出登录
-     */
-    @Override
-    public void empLogout() {
-    }
 }

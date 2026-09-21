@@ -32,6 +32,4 @@ public interface IEmployeeService extends IService<Employee> {
     Employee getEmpInfoById(Long id);
 
     void editEmpPassword(PasswordEditDTO passwordEditDTO);
-
-    void empLogout();
 }

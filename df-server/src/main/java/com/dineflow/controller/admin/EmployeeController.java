@@ -117,7 +117,6 @@ public class EmployeeController {
     @ApiOperation("退出登录")
     public Result<String> empLogout() {
         log.info("退出登录");
-        employeeService.empLogout();
         return Result.success();
     }
 }

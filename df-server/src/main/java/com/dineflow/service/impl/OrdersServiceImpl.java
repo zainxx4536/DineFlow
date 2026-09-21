@@ -335,14 +335,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .collect(Collectors.groupingBy(OrderDetail::getOrderId));
 
         // 5. 将订单明细装入对应的 VO
-        records.forEach(order -> {
-            order.setOrderDetailList(
-                    detailMap.getOrDefault(
-                            order.getId(),
-                            Collections.emptyList()
-                    )
-            );
-        });
+        records.forEach(order -> order.setOrderDetailList(
+                detailMap.getOrDefault(
+                        order.getId(),
+                        Collections.emptyList()
+                )
+        ));
 
         return new PageResult<>(resultPage.getTotal(), records);
     }
