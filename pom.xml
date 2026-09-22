@@ -28,7 +28,7 @@
         <aliyun.sdk.oss>0.5.1</aliyun.sdk.oss>
         <knife4j>4.4.0</knife4j>
         <jjwt>0.9.1</jjwt>
-        <poi>3.16</poi>
+        <poi>5.5.1</poi>
         <hutool>5.8.46</hutool>
         <httpclient5>5.5</httpclient5>
         <httpcore5>5.3.4</httpcore5>
@@ -102,12 +102,6 @@
                 <groupId>org.apache.httpcomponents.core5</groupId>
                 <artifactId>httpcore5-h2</artifactId>
                 <version>${httpcore5-h2}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.poi</groupId>
-                <artifactId>poi</artifactId>
-                <version>${poi}</version>
             </dependency>
 
             <dependency>

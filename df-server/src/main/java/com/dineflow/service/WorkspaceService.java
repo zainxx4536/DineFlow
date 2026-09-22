@@ -5,9 +5,11 @@ import com.dineflow.vo.DishOverViewVO;
 import com.dineflow.vo.OrderOverViewVO;
 import com.dineflow.vo.SetmealOverViewVO;
 
+import java.time.LocalDateTime;
+
 public interface WorkspaceService {
 
-    BusinessDataVO getBusinessData();
+    BusinessDataVO getBusinessData(LocalDateTime beginTime, LocalDateTime endTime);
 
     OrderOverViewVO getOrderOverView();
 

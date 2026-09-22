@@ -1,12 +1,10 @@
 package com.dineflow.service.impl;
 
 import com.baomidou.mybatisplus.extension.toolkit.Db;
-import com.dineflow.entity.Orders;
 import com.dineflow.entity.User;
 import com.dineflow.mapper.DishMapper;
 import com.dineflow.mapper.OrdersMapper;
 import com.dineflow.mapper.SetmealMapper;
-import com.dineflow.mapper.UserMapper;
 import com.dineflow.service.WorkspaceService;
 import com.dineflow.vo.*;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +15,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Service
 @Slf4j
@@ -38,20 +35,15 @@ public class WorkspaceServiceImpl implements WorkspaceService {
      * 平均客单价：营业额 / 有效订单数
      * 新增用户数：当日新增用户的数量
      */
-    public BusinessDataVO getBusinessData() {
+    public BusinessDataVO getBusinessData(LocalDateTime beginTime, LocalDateTime endTime) {
 
-        LocalDate today = LocalDate.now();
-
-        LocalDateTime beginTime = today.atStartOfDay();
-        LocalDateTime endTime = today.plusDays(1).atStartOfDay();
-
-        // 今日新增用户数
+        // 新增用户数
         long newUsers = Db.lambdaQuery(User.class)
                 .ge(User::getCreateTime, beginTime)
                 .lt(User::getCreateTime, endTime)
                 .count();
 
-        // 今日订单营业数据
+        // 订单统计
         BusinessOrderDataVO orderData = ordersMapper.getBusinessOrderData(beginTime, endTime);
 
         long totalOrderCount = orderData.getTotalOrderCount();
