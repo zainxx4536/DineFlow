@@ -11,6 +11,7 @@ import org.apache.commons.lang.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -144,7 +145,8 @@ public class ReportServiceImpl implements ReportService {
         }
 
         // 订单完成率
-        double orderCompletionRate = totalOrderCount == 0 ? 0.0 : (double) validOrderCount / totalOrderCount;
+        BigDecimal orderCompletionRate = totalOrderCount == 0 ? BigDecimal.ZERO :
+                BigDecimal.valueOf(validOrderCount).divide(BigDecimal.valueOf(totalOrderCount), 4, RoundingMode.HALF_UP);
 
         return OrderReportVO.builder()
                 .dateList(StringUtils.join(dateList, ","))

@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 
 @Data
 @Builder
@@ -29,6 +30,6 @@ public class OrderReportVO implements Serializable {
     private Long validOrderCount;
 
     //订单完成率
-    private Double orderCompletionRate;
+    private BigDecimal orderCompletionRate;
 
 }

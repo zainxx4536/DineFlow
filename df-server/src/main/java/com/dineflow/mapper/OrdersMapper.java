@@ -35,4 +35,8 @@ public interface OrdersMapper extends BaseMapper<Orders> {
     List<OrderDailyVO> dailyOrderStatistics(LocalDateTime beginTime, LocalDateTime endTime);
 
     List<GoodsSalesTop10VO> getSalesTop10(LocalDateTime beginTime, LocalDateTime endTime);
+
+    BusinessOrderDataVO getBusinessOrderData(LocalDateTime beginTime, LocalDateTime endTime);
+
+    OrderOverViewVO getOrderOverView(LocalDateTime beginTime, LocalDateTime endTime);
 }

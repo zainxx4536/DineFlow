@@ -36,25 +36,16 @@
     </select>
 
     <select id="orderStatistics" resultType="com.dineflow.vo.OrderStatisticsVO">
-        select
-            coalesce(sum(case
-                             when status = 2 then 1
-                             else 0
-                end), 0) as toBeConfirmed,
-            coalesce(sum(case
-                             when status = 3 then 1
-                             else 0
-                end), 0) as confirmed,
-            coalesce(sum(case
-                             when status = 4 then 1
-                             else 0
-                end), 0) as deliveryInProgress
+        select count(case when status = 2 then 1 end) as toBeConfirmed,
+               count(case when status = 3 then 1 end) as confirmed,
+               count(case when status = 4 then 1 end) as deliveryInProgress
         from orders
     </select>
 
     <select id="turnoverStatistics" resultType="com.dineflow.vo.TurnoverDailyVO">
         select
-            date(order_time) as `date`, coalesce(sum(amount), 0) as `turnover`
+            date(order_time) as `date`,
+            coalesce(sum(amount), 0) as `turnover`
         from orders
         where status = 5
           and order_time >= #{beginTime}
@@ -65,8 +56,9 @@
 
     <select id="dailyOrderStatistics" resultType="com.dineflow.vo.OrderDailyVO">
         select
-            date(order_time) as `date`, count(*) as orderCount,
-            sum(case when status = 5 then 1 else 0 end) as validOrderCount
+            date(order_time) as `date`,
+            count(*) as orderCount,
+            count(case when status = 5 then 1 end) as validOrderCount
         from orders
         where order_time >= #{beginTime}
           and order_time &lt; #{endTime}
@@ -84,5 +76,25 @@
           and o.order_time &lt; #{endTime}
         group by name
         order by number desc limit 0, 10
+    </select>
+
+    <select id="getBusinessOrderData" resultType="com.dineflow.vo.BusinessOrderDataVO">
+        select coalesce(sum(case when status = 5 then amount else 0 end), 0) as `turnover`,
+               count(*) as `totalOrderCount`,
+               count(case when status = 5 then 1 end) as `validOrderCount`
+        from orders
+        where order_time >= #{beginTime}
+          and order_time &lt; #{endTime}
+    </select>
+
+    <select id="getOrderOverView" resultType="com.dineflow.vo.OrderOverViewVO">
+        select count(*) as `allOrders`,
+               count(case when status = 5 then 1 end) as `completedOrders`,
+               count(case when status = 6 then 1 end) as `cancelledOrders`,
+               count(case when status = 3 then 1 end) as `deliveredOrders`,
+               count(case when status = 2 then 1 end) as `waitingOrders`
+        from orders
+        where order_time >= #{beginTime}
+          and order_time &lt; #{endTime}
     </select>
 </mapper>

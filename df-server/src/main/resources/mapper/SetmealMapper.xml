@@ -19,4 +19,10 @@
         </where>
         order by s.update_time desc ,s.id asc
     </select>
+
+    <select id="getSetmealOverView" resultType="com.dineflow.vo.SetmealOverViewVO">
+        select count(case when status = 0 then 1 end) as `discontinued`,
+               count(case when status = 1 then 1 end) as `sold`
+        from setmeal
+    </select>
 </mapper>

@@ -20,4 +20,10 @@
         order by d.update_time desc ,d.id asc
     </select>
 
+    <select id="getDishOverView" resultType="com.dineflow.vo.DishOverViewVO">
+        select count(case when status = 0 then 1 end) as `discontinued`,
+               count(case when status = 1 then 1 end) as `sold`
+        from dish
+    </select>
+
 </mapper>
