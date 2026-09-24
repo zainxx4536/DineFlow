@@ -30,10 +30,7 @@ public class AdminRequestInterceptor implements HandlerInterceptor {
     private final JwtProperties jwtProperties;
 
     @Override
-    public boolean preHandle(
-            HttpServletRequest request,
-            @NonNull HttpServletResponse response,
-            @NonNull Object handler) {
+    public boolean preHandle(HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) {
 
         // 获取请求头中的 Token
         String token = request.getHeader(
@@ -71,11 +68,7 @@ public class AdminRequestInterceptor implements HandlerInterceptor {
     }
 
     @Override
-    public void afterCompletion(
-            @NonNull HttpServletRequest request,
-            @NonNull HttpServletResponse response,
-            @NonNull Object handler,
-            @Nullable Exception ex) {
+    public void afterCompletion(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler, @Nullable Exception ex) {
 
         ThreadLocalUtil.removeCurrentId();
     }

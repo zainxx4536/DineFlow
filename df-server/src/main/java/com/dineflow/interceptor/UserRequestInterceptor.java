@@ -31,10 +31,7 @@ public class UserRequestInterceptor implements HandlerInterceptor {
     private final JwtProperties jwtProperties;
 
     @Override
-    public boolean preHandle(
-            @NonNull HttpServletRequest request,
-            @NonNull HttpServletResponse response,
-            @NonNull Object handler) {
+    public boolean preHandle(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) {
 
         // 非 Controller 请求直接放行
         if (!(handler instanceof HandlerMethod)) {
@@ -77,11 +74,7 @@ public class UserRequestInterceptor implements HandlerInterceptor {
     }
 
     @Override
-    public void afterCompletion(
-            @NonNull HttpServletRequest request,
-            @NonNull HttpServletResponse response,
-            @NonNull Object handler,
-            @Nullable Exception ex) {
+    public void afterCompletion(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler, @Nullable Exception ex) {
 
         ThreadLocalUtil.removeCurrentId();
     }
