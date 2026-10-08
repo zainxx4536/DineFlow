@@ -22,7 +22,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BaseException.class)
     public Result<String> exceptionHandler(BaseException e) {
         log.error("异常信息：{}", e.getMessage());
-        return Result.error(e.getMessage());
+        return Result.error(e.getErrorCode(), e.getMessage());
     }
 
     /**
@@ -40,5 +40,15 @@ public class GlobalExceptionHandler {
         } else {
             return Result.error(MessageConstant.UNKNOWN_ERROR);
         }
+    }
+    // 死锁/锁等待作为明确业务冲突返回，客户端刷新后重新确认，不自动重放写请求。
+    @ExceptionHandler(org.springframework.dao.ConcurrencyFailureException.class)
+    public Result<String> concurrentWrite(RuntimeException e) {
+        return Result.error("CART_CHANGED", MessageConstant.CART_CHANGED);
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public Result<String> malformedInput(RuntimeException e) {
+        return Result.error("INVALID_PARAMETER", MessageConstant.INVALID_PARAMETER);
     }
 }

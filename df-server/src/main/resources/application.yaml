@@ -92,3 +92,11 @@ dineflow:
     ak: ${dineflow.baidu-map.ak}
     shop-lng: ${dineflow.baidu-map.shop-lng}
     shop-lat: ${dineflow.baidu-map.shop-lat}
+  order:
+    settlement:
+      # 每单固定费用，首版保持零收费；不能从请求中覆盖。
+      pack-fee: ${DINEFLOW_PACK_FEE:0.00}
+      delivery-fee: ${DINEFLOW_DELIVERY_FEE:0.00}
+      discount-amount: ${DINEFLOW_DISCOUNT_AMOUNT:0.00}
+      ttl: ${DINEFLOW_SETTLEMENT_TTL:10m}
+      secret: ${DINEFLOW_SETTLEMENT_SECRET}

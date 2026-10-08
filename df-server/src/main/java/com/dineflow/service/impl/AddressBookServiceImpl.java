@@ -1,5 +1,8 @@
 package com.dineflow.service.impl;
 
+import com.dineflow.constant.BusinessErrorCode;
+import com.dineflow.order.support.SettlementErrors;
+import com.dineflow.order.support.SettlementValidation;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.MessageConstant;
@@ -40,6 +43,7 @@ public class AddressBookServiceImpl extends ServiceImpl<AddressBookMapper, Addre
     @Override
     public void addAddress(AddressBook addressBook) {
         Long userId = ThreadLocalUtil.getCurrentId();
+        addressBook.setId(null);
         addressBook.setUserId(userId);
         addressBook.setIsDefault(0);
         addressBook.setVersion(1L);
@@ -63,18 +67,33 @@ public class AddressBookServiceImpl extends ServiceImpl<AddressBookMapper, Addre
      */
     @Override
     public void modifyAddressById(AddressBook addressBook) {
+        if (addressBook == null || !SettlementValidation.positive(addressBook.getId())
+                || !SettlementValidation.positive(addressBook.getVersion()))
+            throw SettlementErrors.error(BusinessErrorCode.INVALID_PARAMETER);
         Long userId = ThreadLocalUtil.getCurrentId();
         LambdaUpdateWrapper<AddressBook> wrapper =
                 new LambdaUpdateWrapper<AddressBook>()
                         .eq(AddressBook::getUserId, userId)
                         .eq(AddressBook::getId, addressBook.getId())
                         .eq(AddressBook::getVersion, addressBook.getVersion())
+                        .set(AddressBook::getConsignee, addressBook.getConsignee())
+                        .set(AddressBook::getPhone, addressBook.getPhone())
+                        .set(AddressBook::getSex, addressBook.getSex())
+                        .set(AddressBook::getProvinceCode, addressBook.getProvinceCode())
+                        .set(AddressBook::getProvinceName, addressBook.getProvinceName())
+                        .set(AddressBook::getCityCode, addressBook.getCityCode())
+                        .set(AddressBook::getCityName, addressBook.getCityName())
+                        .set(AddressBook::getDistrictCode, addressBook.getDistrictCode())
+                        .set(AddressBook::getDistrictName, addressBook.getDistrictName())
+                        .set(AddressBook::getDetail, addressBook.getDetail())
+                        .set(AddressBook::getLabel, addressBook.getLabel())
                         .setSql("version = version + 1");
 
-        boolean success = update(addressBook, wrapper);
+        // 只写地址内容，id/userId/isDefault 不可由本接口修改；version 仅 SQL 自增。
+        boolean success = baseMapper.update(null, wrapper) == 1;
 
         if (!success) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+            throw SettlementErrors.error(BusinessErrorCode.ADDRESS_CHANGED);
         }
     }
 

@@ -11,6 +11,7 @@ import java.io.Serializable;
 public class Result<T> implements Serializable {
 
     private Integer code; //编码：1成功，0和其它数字为失败
+    private String errorCode; // 业务失败的稳定标识，成功时为空
     private String msg; //错误信息
     private T data; //数据
 
@@ -35,4 +36,9 @@ public class Result<T> implements Serializable {
         return result;
     }
 
+    public static <T> Result<T> error(String errorCode, String msg) {
+        Result<T> result = error(msg);
+        result.errorCode = errorCode;
+        return result;
+    }
 }

@@ -1,5 +1,6 @@
 package com.dineflow.service.impl;
 
+import com.dineflow.order.service.SettlementLocks;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -45,12 +46,16 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
 
     private final DishMapper dishMapper;
 
+    private final SettlementLocks settlementLocks;
+
     /**
      * 新增菜品
      */
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void addDish(DishDTO dishDTO) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
         Dish dish = BeanUtil.copyProperties(dishDTO, Dish.class);
         dish.setStatus(StatusConstant.ENABLE);
         save(dish);
@@ -83,6 +88,8 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void dishDelBatch(List<Long> ids) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
         if (ids == null || ids.isEmpty()) {
             throw new InvalidParameterException("待删除菜品ID不能为空!");
         }
@@ -140,6 +147,8 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void modifyDishInfo(DishDTO dishDTO) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
         //非空判断（避免 NPE 空指针异常）
         Long dishId = dishDTO.getId();
         if (dishId == null) {
@@ -184,8 +193,11 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
     /**
      * 修改菜品状态
      */
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void modifyDishStatus(Long id, Integer status) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
         Dish dish = new Dish();
         LambdaUpdateWrapper<Dish> wrapper = new LambdaUpdateWrapper<Dish>()
                 .set(Dish::getStatus, status)

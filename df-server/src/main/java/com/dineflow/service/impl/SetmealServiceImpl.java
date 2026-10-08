@@ -1,5 +1,6 @@
 package com.dineflow.service.impl;
 
+import com.dineflow.order.service.SettlementLocks;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -46,12 +47,16 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
 
     private final SetmealMapper setmealMapper;
 
+    private final SettlementLocks settlementLocks;
+
     /**
      * 新增套餐
      */
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void addSetmeal(SetmealDTO setmealDTO) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
         //套餐中菜品不能为空
         List<SetmealDish> setmealDishes = setmealDTO.getSetmealDishes();
         if (CollUtil.isEmpty(setmealDishes)) {
@@ -90,8 +95,11 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
     /**
      * 批量删除套餐
      */
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void setmealDelBatch(List<Long> ids) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
         if (CollUtil.isEmpty(ids)) {
             throw new InvalidParameterException("请选择要删除套餐!");
         }
@@ -139,6 +147,8 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void modifySetmeal(SetmealDTO setmealDTO) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
 
         Long setmealId = setmealDTO.getId();
 
@@ -189,8 +199,11 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
     /**
      * 修改套餐状态
      */
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void modifySetmealStatus(Long id, Integer status) {
+        // 与下单的目录共享锁互斥，关系删除/重建也在同一事务内。
+        settlementLocks.catalogWrite();
 
         //起售套餐时需要检查套餐中的菜品状态
         if (Objects.equals(status, StatusConstant.ENABLE)) {

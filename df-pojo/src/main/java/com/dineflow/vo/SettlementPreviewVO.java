@@ -17,6 +17,10 @@ import java.util.List;
 @AllArgsConstructor
 public class SettlementPreviewVO {
 
+    private String settlementToken;
+
+    private java.time.LocalDateTime expiresAt;
+
     private Long addressBookId;
 
     private Long addressVersion;

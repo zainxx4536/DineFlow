@@ -71,4 +71,7 @@ public class MessageConstant {
 
     public static final String MAP_SERVICE_UNAVAILABLE = "配送范围暂时无法校验，请稍后重试";
 
+    public static final String INVALID_SETTLEMENT = "无效结算";
+    public static final String SETTLEMENT_EXPIRED = "结算过期";
+    public static final String ITEM_CHANGED = "商品信息已发生变化，请重新确认订单";
 }

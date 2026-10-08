@@ -38,7 +38,7 @@ public class OrdersController {
     @PostMapping("/submit")
     @ApiOperation("用户下单")
     public Result<OrderSubmitVO> submitOrder(@RequestBody OrdersSubmitDTO ordersSubmitDTO) {
-        log.info("用户下单：{}", ordersSubmitDTO);
+        log.info("用户下单，地址ID：{}", ordersSubmitDTO.getAddressBookId());
         OrderSubmitVO orderSubmitVO = ordersService.submitOrder(ordersSubmitDTO);
         return Result.success(orderSubmitVO);
     }

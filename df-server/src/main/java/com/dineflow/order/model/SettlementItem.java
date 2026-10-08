@@ -31,6 +31,9 @@ public class SettlementItem {
 
     private String dishFlavor;
 
+    // 内部摘要字段，不作为订单实体字段保存。
+    private String flavorDefinition;
+
     private Integer number;
 
     /**

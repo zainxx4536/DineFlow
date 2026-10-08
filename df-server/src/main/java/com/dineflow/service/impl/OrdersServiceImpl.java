@@ -1,10 +1,15 @@
 package com.dineflow.service.impl;
 
+import com.dineflow.order.service.CartMutationService;
+import com.dineflow.order.service.SettlementLocks;
+import com.dineflow.order.service.SettlementTokenService;
+import com.dineflow.constant.BusinessErrorCode;
+import com.dineflow.order.support.SettlementErrors;
+import com.dineflow.order.support.SettlementValidation;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -83,6 +88,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     private final StringRedisTemplate redisTemplate;
 
     private final OrderCreateTxService orderCreateTxService;
+    private final SettlementTokenService settlementTokens;
+    private final SettlementLocks settlementLocks;
+    private final CartMutationService cartMutations;
 
     /**
      * C端-用户提交订单
@@ -93,35 +101,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         Long userId = ThreadLocalUtil.getCurrentId();
 
         if (userId == null) {
-            throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
+            throw SettlementErrors.error(BusinessErrorCode.USER_NOT_LOGIN);
         }
 
-        // 校验 Submit 必要参数
-        if (dto == null
-                || dto.getAddressBookId() == null
-                || dto.getAddressVersion() == null
-                || dto.getSelectedCartItems() == null
-                || dto.getSelectedCartItems().isEmpty()
-                || dto.getConfirmedAmount() == null) {
-
-            throw new OrderBusinessException(MessageConstant.INVALID_PARAMETER);
-        }
-
-
-        // 检查 selectedCartItems 内部参数
-        // cartVersion = 用户 Preview 时看到的版本
-        Set<Long> requestCartItemIds = new HashSet<>();
-
-        for (SelectedCartItemDTO item : dto.getSelectedCartItems()) {
-            if (item == null || item.getCartItemId() == null || item.getCartVersion() == null) {
-                throw new OrderBusinessException("购物车结算参数不完整");
-            }
-
-            // 不允许一份 Submit 中重复提交同一个购物车条目
-            if (!requestCartItemIds.add(item.getCartItemId())) {
-                throw new OrderBusinessException("购物车结算条目重复");
-            }
-        }
+        SettlementValidation.submit(dto);
+        var payload = settlementTokens.verify(dto.getSettlementToken(), userId);
+        settlementTokens.bind(payload, dto);
 
         // 检查店铺营业状态
         Object shopStatusObj = redisTemplate.opsForValue().get(RedisKeyConstant.SHOP_STATUS);
@@ -133,12 +118,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             try {
                 shopStatus = Integer.valueOf(shopStatusObj.toString());
             } catch (NumberFormatException e) {
-                throw new OrderBusinessException(MessageConstant.SHOP_CLOSED);
+                throw SettlementErrors.error(BusinessErrorCode.SHOP_CLOSED);
             }
         }
 
         if (!Objects.equals(shopStatus, 1)) {
-            throw new OrderBusinessException(MessageConstant.SHOP_CLOSED);
+            throw SettlementErrors.error(BusinessErrorCode.SHOP_CLOSED);
         }
 
         // 事务外预读地址
@@ -149,14 +134,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                         .one();
 
         if (addressBook == null) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+            throw SettlementErrors.error(BusinessErrorCode.ADDRESS_CHANGED);
         }
 
         // 事务外先检查一次 addressVersion
         // 如果 Preview 之后地址已经被修改，连百度地图都不必调用，直接要求重新 Preview。
         // 真正进入事务以后还会再锁地址并检查一次。
         if (!Objects.equals(addressBook.getVersion(), dto.getAddressVersion())) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+            throw SettlementErrors.error(BusinessErrorCode.ADDRESS_CHANGED);
         }
 
         String wholeAddress =
@@ -167,23 +152,27 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         // 百度地图配送范围校验
         // !!! 这里必须在事务外 !!!
-        Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
-        double distance = baiduMapClient.getDrivingDistance(coordinate);
-        if (distance > DELIVERY_RANGE_METERS) {
-            throw new OrderBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
+        double distance;
+        try {
+            Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
+            distance = baiduMapClient.getDrivingDistance(coordinate);
+            if (!Double.isFinite(distance) || distance < 0) throw new IllegalStateException("无效路线距离");
+        } catch (RuntimeException e) {
+            throw SettlementErrors.error(BusinessErrorCode.MAP_SERVICE_UNAVAILABLE);
         }
+        if (distance > DELIVERY_RANGE_METERS) {
+            throw SettlementErrors.error(BusinessErrorCode.DELIVERY_OUT_OF_RANGE);
+        }
+        // 地图调用不持有数据库锁，返回后重新检查营业状态和报价有效期。
+        requireShopOpen();
+        settlementTokens.checkExpiry(payload);
 
         // 事务外生成候选订单号
         String orderNumber = String.valueOf(redisIdWorker.nextId("order"));
 
         // 正式进入短事务
         // createOrder() 内部使用：@Transactional(rollbackFor = Exception.class)
-        return orderCreateTxService.createOrder(
-                userId,
-                dto,
-                orderNumber,
-                wholeAddress
-        );
+        return orderCreateTxService.createOrder(userId, dto, orderNumber);
     }
 
     /**
@@ -480,6 +469,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void oneMoreOrder(Long id) {
+        settlementLocks.catalogRead();
+        settlementLocks.cartOwner(ThreadLocalUtil.getCurrentId());
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
@@ -508,74 +499,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new OrderBusinessException(MessageConstant.ORDER_DETAIL_NOT_FOUND);
         }
 
-        // 4. 将每条订单明细合并到当前购物车
+        // 复用当前可售性、价格和规格校验；任一条失败整次“再来一单”回滚。
         for (OrderDetail detail : orderDetailList) {
-
-            LambdaQueryWrapper<ShoppingCart> wrapper =
-                    new LambdaQueryWrapper<ShoppingCart>()
-                            .eq(ShoppingCart::getUserId, userId)
-                            .eq(detail.getDishId() != null,
-                                    ShoppingCart::getDishId,
-                                    detail.getDishId())
-                            .eq(detail.getSetmealId() != null,
-                                    ShoppingCart::getSetmealId,
-                                    detail.getSetmealId());
-
-            if (detail.getDishId() != null) {
-                if (StrUtil.isNotBlank(detail.getDishFlavor())) {
-                    wrapper.eq(
-                            ShoppingCart::getDishFlavor,
-                            detail.getDishFlavor()
-                    );
-                } else {
-                    wrapper.isNull(ShoppingCart::getDishFlavor);
-                }
-            }
-
-            ShoppingCart existedCart = Db.lambdaQuery(ShoppingCart.class)
-                    .setEntityClass(ShoppingCart.class)
-                    .eq(ShoppingCart::getUserId, userId)
-                    .eq(detail.getDishId() != null,
-                            ShoppingCart::getDishId,
-                            detail.getDishId())
-                    .eq(detail.getSetmealId() != null,
-                            ShoppingCart::getSetmealId,
-                            detail.getSetmealId())
-                    .one();
-
-            if (existedCart != null) {
-
-                boolean success = Db.lambdaUpdate(ShoppingCart.class)
-                        .eq(ShoppingCart::getId, existedCart.getId())
-                        .eq(ShoppingCart::getUserId, userId)
-                        .eq(ShoppingCart::getVersion, existedCart.getVersion())
-                        .setSql("number = number + " + detail.getNumber())
-                        .setSql("version = version + 1")
-                        .update();
-
-                if (!success) {
-                    throw new ShoppingCartBusinessException(
-                            MessageConstant.CART_CHANGED
-                    );
-                }
-
-            } else {
-
-                ShoppingCart shoppingCart = ShoppingCart.builder()
-                        .userId(userId)
-                        .dishId(detail.getDishId())
-                        .setmealId(detail.getSetmealId())
-                        .dishFlavor(detail.getDishFlavor())
-                        .name(detail.getName())
-                        .image(detail.getImage())
-                        .amount(detail.getAmount())
-                        .number(detail.getNumber())
-                        .version(1L)
-                        .createTime(LocalDateTime.now())
-                        .build();
-
-                Db.save(shoppingCart);
-            }
+            ShoppingCartDTO item = new ShoppingCartDTO();
+            item.setDishId(detail.getDishId());
+            item.setSetmealId(detail.getSetmealId());
+            item.setDishFlavor(detail.getDishFlavor());
+            SettlementValidation.quantity(detail.getNumber());
+            cartMutations.add(userId, item, detail.getNumber());
         }
     }
 
@@ -620,8 +551,17 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * C端-订单金额预览接口
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(rollbackFor = Exception.class)
     public SettlementPreviewVO preview(SettlementPreviewDTO dto) {
+        if (ThreadLocalUtil.getCurrentId() == null) throw SettlementErrors.error(BusinessErrorCode.USER_NOT_LOGIN);
+        if (dto == null || !SettlementValidation.positive(dto.getAddressBookId())
+                || dto.getCartItemId() == null || dto.getCartItemId().isEmpty() || dto.getCartItemId().size() > 100
+                || dto.getCartItemId().stream().anyMatch(id -> !SettlementValidation.positive(id)))
+            throw SettlementErrors.error(BusinessErrorCode.INVALID_PARAMETER);
+        requireShopOpen();
+        // 第一次数据库读取前取得目录锁，报价期间后台不能更改商品/关系。
+        settlementLocks.catalogRead();
+
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
@@ -631,14 +571,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         }
 
         if (CollUtil.isEmpty(dto.getCartItemId())) {
-            throw new InvalidParameterException(MessageConstant.INVALID_CART_ITEM);
+            throw SettlementErrors.error(BusinessErrorCode.INVALID_CART_ITEM);
         }
 
         // 2. cartId 不能重复
         List<Long> cartIds = dto.getCartItemId();
 
         if (cartIds.stream().distinct().count() != cartIds.size()) {
-            throw new InvalidParameterException(MessageConstant.INVALID_CART_ITEM);
+            throw SettlementErrors.error(BusinessErrorCode.INVALID_CART_ITEM);
         }
 
         // 3. 查询本次选中的购物车
@@ -649,7 +589,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         // 有不存在 / 越权的 cartId
         if (cartList.size() != cartIds.size()) {
-            throw new ShoppingCartBusinessException(MessageConstant.CART_CHANGED);
+            throw SettlementErrors.error(BusinessErrorCode.CART_CHANGED);
         }
 
         // 4. 查询当前用户地址
@@ -659,25 +599,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .one();
 
         if (addressBook == null) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+            throw SettlementErrors.error(BusinessErrorCode.ADDRESS_CHANGED);
         }
 
         // 5. 根据当前真实商品数据构造结算项
         List<SettlementItem> settlementItems = orderSettlementService.buildSettlementItems(cartList);
 
-        // 6. 服务端费用
-        // TODO Iteration 1 暂时统一为 0
-        BigDecimal packAmount = BigDecimal.ZERO;
-        BigDecimal deliveryFee = BigDecimal.ZERO;
-        BigDecimal discountAmount = BigDecimal.ZERO;
-
-        // 7. 服务端统一计算价格
-        OrderPriceResult price = orderPriceCalculator.calculate(
-                settlementItems,
-                packAmount,
-                deliveryFee,
-                discountAmount
-        );
+        OrderPriceResult price = orderPriceCalculator.calculate(settlementItems);
+        var issuedToken = settlementTokens.issue(userId, addressBook, settlementItems, price);
 
         // 8. 转为前端 VO
         List<SettlementItemVO> itemVOList = settlementItems.stream()
@@ -693,12 +622,15 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                                 .number(item.getNumber())
                                 .unitPrice(item.getUnitPrice())
                                 .subtotal(item.getSubtotal())
+                                .setmealItemsSnapshot(item.getSetmealItemsSnapshot())
                                 .build()
                 )
                 .toList();
 
         // 9. 构造预览结果
         return SettlementPreviewVO.builder()
+                .settlementToken(issuedToken.token())
+                .expiresAt(issuedToken.expiresAt())
                 .addressBookId(addressBook.getId())
                 .addressVersion(addressBook.getVersion())
                 .items(itemVOList)
@@ -708,6 +640,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .discountAmount(price.getDiscountAmount())
                 .amount(price.getAmount())
                 .build();
+    }
+
+    private void requireShopOpen() {
+        if (!"1".equals(redisTemplate.opsForValue().get(RedisKeyConstant.SHOP_STATUS)))
+            throw SettlementErrors.error(BusinessErrorCode.SHOP_CLOSED);
     }
 
     /**

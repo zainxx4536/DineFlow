@@ -28,6 +28,9 @@ public class OrdersSubmitDTO implements Serializable {
     @ApiModelProperty("用户最后确认的服务端报价")
     private BigDecimal confirmedAmount;
 
+    @ApiModelProperty("用户确认的服务端签名报价，必须原样回传")
+    private String settlementToken;
+
     @ApiModelProperty("支付方式")
     private int payMethod;
 

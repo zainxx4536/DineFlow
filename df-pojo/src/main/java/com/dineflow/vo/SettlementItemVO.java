@@ -27,6 +27,8 @@ public class SettlementItemVO {
 
     private String dishFlavor;
 
+    private String setmealItemsSnapshot;
+
     private Integer number;
 
     /**
