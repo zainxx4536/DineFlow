@@ -26,4 +26,13 @@
         from dish
     </select>
 
+    <select id="selectForUpdate" resultType="com.dineflow.entity.Dish">
+        select * from dish
+        where id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        order by id
+        for update
+    </select>
 </mapper>

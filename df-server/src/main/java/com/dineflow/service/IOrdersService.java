@@ -51,4 +51,6 @@ public interface IOrdersService extends IService<Orders> {
     void handleRefundNotify(RefundNotification notification);
 
     void urgeOrder(Long id);
+
+    SettlementPreviewVO preview(SettlementPreviewDTO settlementPreviewDTO);
 }

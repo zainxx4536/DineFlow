@@ -48,4 +48,7 @@ public class OrderDetail implements Serializable {
 
     //金额
     private BigDecimal amount;
+
+    //套餐成交组成快照，普通菜品为空
+    private String setmealItemsSnapshot;
 }

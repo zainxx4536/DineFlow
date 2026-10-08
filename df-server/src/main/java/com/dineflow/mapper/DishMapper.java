@@ -8,6 +8,8 @@ import com.dineflow.vo.DishOverViewVO;
 import com.dineflow.vo.DishVO;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 /**
  * <p>
  * 菜品 Mapper 接口
@@ -21,4 +23,6 @@ public interface DishMapper extends BaseMapper<Dish> {
     Page<DishVO> dishPageQuery(@Param("page") Page<DishVO> page, @Param("dto") DishPageQueryDTO dto);
 
     DishOverViewVO getDishOverView();
+
+    List<Dish> selectForUpdate(@Param("ids") List<Long> ids);
 }

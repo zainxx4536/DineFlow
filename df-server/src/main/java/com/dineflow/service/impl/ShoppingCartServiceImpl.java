@@ -5,12 +5,14 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.dto.ShoppingCartDTO;
 import com.dineflow.entity.Dish;
 import com.dineflow.entity.Setmeal;
 import com.dineflow.entity.ShoppingCart;
 import com.dineflow.exception.BaseException;
 import com.dineflow.exception.InvalidParameterException;
+import com.dineflow.exception.ShoppingCartBusinessException;
 import com.dineflow.mapper.ShoppingCartMapper;
 import com.dineflow.service.IShoppingCartService;
 import com.dineflow.utils.ThreadLocalUtil;
@@ -34,6 +36,10 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
      */
     @Override
     public void addItemsToCart(ShoppingCartDTO shoppingCartDTO) {
+
+        if ((shoppingCartDTO.getDishId() == null) == (shoppingCartDTO.getSetmealId() == null)) {
+            throw new InvalidParameterException(MessageConstant.INVALID_PARAMETER);
+        }
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
@@ -68,14 +74,23 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 
         if (existedCart != null) {
             // 已存在，数量 +1
-            lambdaUpdate()
-                    .eq(ShoppingCart::getId, existedCart.getId())
+            boolean success = lambdaUpdate()
+                    .eq(ShoppingCart::getId, shoppingCart.getId())
+                    .eq(ShoppingCart::getUserId, userId)
+                    .eq(ShoppingCart::getVersion, shoppingCart.getVersion())
                     .setSql("number = number + 1")
+                    .setSql("version = version + 1")
                     .update();
+
+            if (!success) {
+                throw new ShoppingCartBusinessException(MessageConstant.CART_CHANGED);
+            }
         } else {
             // 不存在，新增购物车记录，还要判断添加的到底是套餐还是菜品，获取图像和价格
             // 新增购物车记录
             shoppingCart.setNumber(1);
+            // 首次加入，确定购物车版本为 1
+            shoppingCart.setVersion(1L);
 
             if (shoppingCart.getDishId() != null) {
 
@@ -108,7 +123,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
                 shoppingCart.setAmount(setmeal.getPrice());
 
             } else {
-                throw new InvalidParameterException("菜品ID和套餐ID不能同时为空");
+                throw new InvalidParameterException(MessageConstant.DISH_SETMEAL_ID_NULL);
             }
 
             save(shoppingCart);
@@ -169,14 +184,27 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
         }
 
         // 数量大于1，数量减1
+        boolean success;
         if (existedCart.getNumber() > 1) {
-            lambdaUpdate()
-                    .eq(ShoppingCart::getId, existedCart.getId())
+            success = lambdaUpdate()
+                    .eq(ShoppingCart::getId, shoppingCart.getId())
+                    .eq(ShoppingCart::getUserId, userId)
+                    .eq(ShoppingCart::getVersion, shoppingCart.getVersion())
+                    .gt(ShoppingCart::getNumber, 1)
                     .setSql("number = number - 1")
+                    .setSql("version = version + 1")
                     .update();
         } else {
             // 数量为1，直接删除购物车记录
-            removeById(existedCart.getId());
+            success = lambdaUpdate()
+                    .eq(ShoppingCart::getId, shoppingCart.getId())
+                    .eq(ShoppingCart::getUserId, userId)
+                    .eq(ShoppingCart::getVersion, shoppingCart.getVersion())
+                    .eq(ShoppingCart::getNumber, 1)
+                    .remove();
+        }
+        if (!success) {
+            throw new ShoppingCartBusinessException(MessageConstant.CART_CHANGED);
         }
     }
 

@@ -25,4 +25,14 @@
                count(case when status = 1 then 1 end) as `sold`
         from setmeal
     </select>
+    <select id="selectForUpdate" resultType="com.dineflow.entity.Setmeal">
+        select *
+        from setmeal
+        where id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        order by id
+        for update
+    </select>
 </mapper>

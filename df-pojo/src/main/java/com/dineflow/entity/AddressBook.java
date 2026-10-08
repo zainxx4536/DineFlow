@@ -78,4 +78,7 @@ public class AddressBook implements Serializable {
     //是否默认 0否 1是
     @TableField("is_default")
     private Integer isDefault;
+
+    //地址版本
+    private Long version;
 }

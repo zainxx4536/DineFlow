@@ -4,17 +4,25 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.MessageConstant;
+import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.dto.*;
 import com.dineflow.entity.*;
 import com.dineflow.exception.AddressBookBusinessException;
+import com.dineflow.exception.InvalidParameterException;
 import com.dineflow.exception.OrderBusinessException;
 import com.dineflow.exception.ShoppingCartBusinessException;
 import com.dineflow.mapper.OrdersMapper;
 import com.dineflow.model.Coordinate;
+import com.dineflow.order.model.OrderPriceResult;
+import com.dineflow.order.model.SettlementItem;
+import com.dineflow.order.service.OrderCreateTxService;
+import com.dineflow.order.service.OrderSettlementService;
+import com.dineflow.order.support.OrderPriceCalculator;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.IOrdersService;
@@ -31,6 +39,7 @@ import com.wechat.pay.java.service.refund.model.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,87 +76,114 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
     public static final double DELIVERY_RANGE_METERS = 5000D;
 
+    private final OrderSettlementService orderSettlementService;
+
+    private final OrderPriceCalculator orderPriceCalculator;
+
+    private final StringRedisTemplate redisTemplate;
+
+    private final OrderCreateTxService orderCreateTxService;
+
     /**
      * C端-用户提交订单
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
+    public OrderSubmitVO submitOrder(OrdersSubmitDTO dto) {
+
         Long userId = ThreadLocalUtil.getCurrentId();
-        // 校验订单状态（收货地址为空、购物车为空）
-        // 获取地址信息
-        AddressBook address = Db.lambdaQuery(AddressBook.class)
-                .eq(AddressBook::getId, ordersSubmitDTO.getAddressBookId())
-                .eq(AddressBook::getUserId, userId)
-                .one();
-        if (address == null) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+
+        if (userId == null) {
+            throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
         }
-        // 判断是否超出配送范围
-        // 拼接完整地址
-        String wholeAddress = address.getProvinceName()
-                + address.getCityName()
-                + address.getDistrictName()
-                + address.getDetail();
-        // 获取收货地址经纬度
+
+        // 校验 Submit 必要参数
+        if (dto == null
+                || dto.getAddressBookId() == null
+                || dto.getAddressVersion() == null
+                || dto.getSelectedCartItems() == null
+                || dto.getSelectedCartItems().isEmpty()
+                || dto.getConfirmedAmount() == null) {
+
+            throw new OrderBusinessException(MessageConstant.INVALID_PARAMETER);
+        }
+
+
+        // 检查 selectedCartItems 内部参数
+        // cartVersion = 用户 Preview 时看到的版本
+        Set<Long> requestCartItemIds = new HashSet<>();
+
+        for (SelectedCartItemDTO item : dto.getSelectedCartItems()) {
+            if (item == null || item.getCartItemId() == null || item.getCartVersion() == null) {
+                throw new OrderBusinessException("购物车结算参数不完整");
+            }
+
+            // 不允许一份 Submit 中重复提交同一个购物车条目
+            if (!requestCartItemIds.add(item.getCartItemId())) {
+                throw new OrderBusinessException("购物车结算条目重复");
+            }
+        }
+
+        // 检查店铺营业状态
+        Object shopStatusObj = redisTemplate.opsForValue().get(RedisKeyConstant.SHOP_STATUS);
+
+        Integer shopStatus = null;
+
+        if (shopStatusObj != null) {
+
+            try {
+                shopStatus = Integer.valueOf(shopStatusObj.toString());
+            } catch (NumberFormatException e) {
+                throw new OrderBusinessException(MessageConstant.SHOP_CLOSED);
+            }
+        }
+
+        if (!Objects.equals(shopStatus, 1)) {
+            throw new OrderBusinessException(MessageConstant.SHOP_CLOSED);
+        }
+
+        // 事务外预读地址
+        AddressBook addressBook =
+                Db.lambdaQuery(AddressBook.class)
+                        .eq(AddressBook::getId, dto.getAddressBookId())
+                        .eq(AddressBook::getUserId, userId)
+                        .one();
+
+        if (addressBook == null) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+        }
+
+        // 事务外先检查一次 addressVersion
+        // 如果 Preview 之后地址已经被修改，连百度地图都不必调用，直接要求重新 Preview。
+        // 真正进入事务以后还会再锁地址并检查一次。
+        if (!Objects.equals(addressBook.getVersion(), dto.getAddressVersion())) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+        }
+
+        String wholeAddress =
+                addressBook.getProvinceName()
+                        + addressBook.getCityName()
+                        + addressBook.getDistrictName()
+                        + addressBook.getDetail();
+
+        // 百度地图配送范围校验
+        // !!! 这里必须在事务外 !!!
         Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
-        // 获取收货地址距离店铺的驾车距离（米）
         double distance = baiduMapClient.getDrivingDistance(coordinate);
         if (distance > DELIVERY_RANGE_METERS) {
-            throw new AddressBookBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
+            throw new OrderBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
         }
 
-        // 获取购物车中的商品信息
-        List<ShoppingCart> itemsList = Db.lambdaQuery(ShoppingCart.class)
-                .eq(ShoppingCart::getUserId, userId)
-                .list();
-        if (CollUtil.isEmpty(itemsList)) {
-            throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
-        }
+        // 事务外生成候选订单号
+        String orderNumber = String.valueOf(redisIdWorker.nextId("order"));
 
-        // 订单金额应以后端购物车数据为准
-        BigDecimal amount = itemsList.stream()
-                .map(item -> item.getAmount()
-                        .multiply(BigDecimal.valueOf(item.getNumber())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // 使用全局唯一ID生成器生成订单号
-        long orderNumber = redisIdWorker.nextId("order");
-
-        // 插入订单数据
-        Orders order = BeanUtil.copyProperties(ordersSubmitDTO, Orders.class);
-        order.setAmount(amount);
-        order.setPhone(address.getPhone());
-        order.setAddress(wholeAddress);
-        order.setConsignee(address.getConsignee());
-        order.setNumber(String.valueOf(orderNumber));
-        order.setUserId(userId);
-        order.setStatus(Orders.PENDING_PAYMENT);
-        order.setPayStatus(Orders.UN_PAID);
-        order.setOrderTime(LocalDateTime.now());
-        save(order);
-
-        // 插入订单详情数据
-        List<OrderDetail> orderDetailList = new ArrayList<>();
-        for (ShoppingCart item : itemsList) {
-            OrderDetail orderDetail = BeanUtil.copyProperties(item, OrderDetail.class);
-            orderDetail.setOrderId(order.getId());
-            orderDetailList.add(orderDetail);
-        }
-        Db.saveBatch(orderDetailList);
-
-        // 删除购物车数据
-        Db.lambdaUpdate(ShoppingCart.class)
-                .eq(ShoppingCart::getUserId, userId)
-                .remove();
-
-        // 封装返回结果
-        return OrderSubmitVO.builder()
-                .id(order.getId())
-                .orderNumber(order.getNumber())
-                .orderAmount(order.getAmount())
-                .orderTime(order.getOrderTime())
-                .build();
+        // 正式进入短事务
+        // createOrder() 内部使用：@Transactional(rollbackFor = Exception.class)
+        return orderCreateTxService.createOrder(
+                userId,
+                dto,
+                orderNumber,
+                wholeAddress
+        );
     }
 
     /**
@@ -442,52 +478,105 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * C端-再来一单
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void oneMoreOrder(Long id) {
-        // 查询原订单及订单明细，将商品重新加入当前用户购物车
+
         Long userId = ThreadLocalUtil.getCurrentId();
 
-        // 1. 查询当前用户的原订单
+        // 1. 查询当前用户原订单
         Orders order = lambdaQuery()
                 .eq(Orders::getId, id)
                 .eq(Orders::getUserId, userId)
                 .one();
 
         if (order == null) {
-            throw new OrderBusinessException("订单不存在");
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
-        // 2. 只有已完成或已取消订单允许再来一单
+        // 2. 状态校验
         if (!Orders.COMPLETED.equals(order.getStatus())
                 && !Orders.CANCELLED.equals(order.getStatus())) {
-            throw new OrderBusinessException("当前订单状态不支持再来一单");
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
 
         // 3. 查询原订单明细
-        List<OrderDetail> orderDetailList =
-                Db.lambdaQuery(OrderDetail.class)
-                        .eq(OrderDetail::getOrderId, id)
-                        .list();
+        List<OrderDetail> orderDetailList = Db.lambdaQuery(OrderDetail.class)
+                .eq(OrderDetail::getOrderId, id)
+                .list();
 
         if (CollUtil.isEmpty(orderDetailList)) {
-            throw new OrderBusinessException("订单明细不存在");
+            throw new OrderBusinessException(MessageConstant.ORDER_DETAIL_NOT_FOUND);
         }
 
-        // 4. 将订单明细重新放入当前用户购物车
-        List<ShoppingCart> shoppingCartList = orderDetailList.stream()
-                .map(orderDetail -> ShoppingCart.builder()
-                        .userId(userId)
-                        .dishId(orderDetail.getDishId())
-                        .setmealId(orderDetail.getSetmealId())
-                        .dishFlavor(orderDetail.getDishFlavor())
-                        .name(orderDetail.getName())
-                        .image(orderDetail.getImage())
-                        .amount(orderDetail.getAmount())
-                        .number(orderDetail.getNumber())
-                        .createTime(LocalDateTime.now())
-                        .build())
-                .toList();
+        // 4. 将每条订单明细合并到当前购物车
+        for (OrderDetail detail : orderDetailList) {
 
-        Db.saveBatch(shoppingCartList);
+            LambdaQueryWrapper<ShoppingCart> wrapper =
+                    new LambdaQueryWrapper<ShoppingCart>()
+                            .eq(ShoppingCart::getUserId, userId)
+                            .eq(detail.getDishId() != null,
+                                    ShoppingCart::getDishId,
+                                    detail.getDishId())
+                            .eq(detail.getSetmealId() != null,
+                                    ShoppingCart::getSetmealId,
+                                    detail.getSetmealId());
+
+            if (detail.getDishId() != null) {
+                if (StrUtil.isNotBlank(detail.getDishFlavor())) {
+                    wrapper.eq(
+                            ShoppingCart::getDishFlavor,
+                            detail.getDishFlavor()
+                    );
+                } else {
+                    wrapper.isNull(ShoppingCart::getDishFlavor);
+                }
+            }
+
+            ShoppingCart existedCart = Db.lambdaQuery(ShoppingCart.class)
+                    .setEntityClass(ShoppingCart.class)
+                    .eq(ShoppingCart::getUserId, userId)
+                    .eq(detail.getDishId() != null,
+                            ShoppingCart::getDishId,
+                            detail.getDishId())
+                    .eq(detail.getSetmealId() != null,
+                            ShoppingCart::getSetmealId,
+                            detail.getSetmealId())
+                    .one();
+
+            if (existedCart != null) {
+
+                boolean success = Db.lambdaUpdate(ShoppingCart.class)
+                        .eq(ShoppingCart::getId, existedCart.getId())
+                        .eq(ShoppingCart::getUserId, userId)
+                        .eq(ShoppingCart::getVersion, existedCart.getVersion())
+                        .setSql("number = number + " + detail.getNumber())
+                        .setSql("version = version + 1")
+                        .update();
+
+                if (!success) {
+                    throw new ShoppingCartBusinessException(
+                            MessageConstant.CART_CHANGED
+                    );
+                }
+
+            } else {
+
+                ShoppingCart shoppingCart = ShoppingCart.builder()
+                        .userId(userId)
+                        .dishId(detail.getDishId())
+                        .setmealId(detail.getSetmealId())
+                        .dishFlavor(detail.getDishFlavor())
+                        .name(detail.getName())
+                        .image(detail.getImage())
+                        .amount(detail.getAmount())
+                        .number(detail.getNumber())
+                        .version(1L)
+                        .createTime(LocalDateTime.now())
+                        .build();
+
+                Db.save(shoppingCart);
+            }
+        }
     }
 
     /**
@@ -525,6 +614,100 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         message.put("content", "订单号：" + order.getNumber());
 
         webSocketServer.sendToAllClient(JSONUtil.toJsonStr(message));
+    }
+
+    /**
+     * C端-订单金额预览接口
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public SettlementPreviewVO preview(SettlementPreviewDTO dto) {
+
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        // 1. 参数校验
+        if (dto.getAddressBookId() == null) {
+            throw new InvalidParameterException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        }
+
+        if (CollUtil.isEmpty(dto.getCartItemId())) {
+            throw new InvalidParameterException(MessageConstant.INVALID_CART_ITEM);
+        }
+
+        // 2. cartId 不能重复
+        List<Long> cartIds = dto.getCartItemId();
+
+        if (cartIds.stream().distinct().count() != cartIds.size()) {
+            throw new InvalidParameterException(MessageConstant.INVALID_CART_ITEM);
+        }
+
+        // 3. 查询本次选中的购物车
+        List<ShoppingCart> cartList = Db.lambdaQuery(ShoppingCart.class)
+                .eq(ShoppingCart::getUserId, userId)
+                .in(ShoppingCart::getId, cartIds)
+                .list();
+
+        // 有不存在 / 越权的 cartId
+        if (cartList.size() != cartIds.size()) {
+            throw new ShoppingCartBusinessException(MessageConstant.CART_CHANGED);
+        }
+
+        // 4. 查询当前用户地址
+        AddressBook addressBook = Db.lambdaQuery(AddressBook.class)
+                .eq(AddressBook::getId, dto.getAddressBookId())
+                .eq(AddressBook::getUserId, userId)
+                .one();
+
+        if (addressBook == null) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+        }
+
+        // 5. 根据当前真实商品数据构造结算项
+        List<SettlementItem> settlementItems = orderSettlementService.buildSettlementItems(cartList);
+
+        // 6. 服务端费用
+        // TODO Iteration 1 暂时统一为 0
+        BigDecimal packAmount = BigDecimal.ZERO;
+        BigDecimal deliveryFee = BigDecimal.ZERO;
+        BigDecimal discountAmount = BigDecimal.ZERO;
+
+        // 7. 服务端统一计算价格
+        OrderPriceResult price = orderPriceCalculator.calculate(
+                settlementItems,
+                packAmount,
+                deliveryFee,
+                discountAmount
+        );
+
+        // 8. 转为前端 VO
+        List<SettlementItemVO> itemVOList = settlementItems.stream()
+                .map(item ->
+                        SettlementItemVO.builder()
+                                .cartId(item.getCartId())
+                                .cartVersion(item.getCartVersion())
+                                .dishId(item.getDishId())
+                                .setmealId(item.getSetmealId())
+                                .name(item.getName())
+                                .image(item.getImage())
+                                .dishFlavor(item.getDishFlavor())
+                                .number(item.getNumber())
+                                .unitPrice(item.getUnitPrice())
+                                .subtotal(item.getSubtotal())
+                                .build()
+                )
+                .toList();
+
+        // 9. 构造预览结果
+        return SettlementPreviewVO.builder()
+                .addressBookId(addressBook.getId())
+                .addressVersion(addressBook.getVersion())
+                .items(itemVOList)
+                .goodsAmount(price.getGoodsAmount())
+                .packAmount(price.getPackAmount())
+                .deliveryFee(price.getDeliveryFee())
+                .discountAmount(price.getDiscountAmount())
+                .amount(price.getAmount())
+                .build();
     }
 
     /**

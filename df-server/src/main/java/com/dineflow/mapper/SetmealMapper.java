@@ -8,6 +8,8 @@ import com.dineflow.vo.SetmealOverViewVO;
 import com.dineflow.vo.SetmealVO;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 /**
  * <p>
  * 套餐 Mapper 接口
@@ -21,4 +23,6 @@ public interface SetmealMapper extends BaseMapper<Setmeal> {
     Page<SetmealVO> setmealPageQuery(@Param("page") Page<SetmealVO> page, @Param("dto") SetmealPageQueryDTO dto);
 
     SetmealOverViewVO getSetmealOverView();
+
+    List<Setmeal> selectForUpdate(@Param("ids") List<Long> ids);
 }

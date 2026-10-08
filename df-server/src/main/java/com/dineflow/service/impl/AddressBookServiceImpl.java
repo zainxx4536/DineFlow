@@ -2,7 +2,9 @@ package com.dineflow.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.entity.AddressBook;
+import com.dineflow.exception.AddressBookBusinessException;
 import com.dineflow.exception.BaseException;
 import com.dineflow.mapper.AddressBookMapper;
 import com.dineflow.service.IAddressBookService;
@@ -40,6 +42,7 @@ public class AddressBookServiceImpl extends ServiceImpl<AddressBookMapper, Addre
         Long userId = ThreadLocalUtil.getCurrentId();
         addressBook.setUserId(userId);
         addressBook.setIsDefault(0);
+        addressBook.setVersion(1L);
         save(addressBook);
     }
 
@@ -61,14 +64,22 @@ public class AddressBookServiceImpl extends ServiceImpl<AddressBookMapper, Addre
     @Override
     public void modifyAddressById(AddressBook addressBook) {
         Long userId = ThreadLocalUtil.getCurrentId();
-        LambdaUpdateWrapper<AddressBook> wrapper = new LambdaUpdateWrapper<AddressBook>()
-                .eq(AddressBook::getUserId, userId)
-                .eq(AddressBook::getId, addressBook.getId());
-        update(addressBook, wrapper);
+        LambdaUpdateWrapper<AddressBook> wrapper =
+                new LambdaUpdateWrapper<AddressBook>()
+                        .eq(AddressBook::getUserId, userId)
+                        .eq(AddressBook::getId, addressBook.getId())
+                        .eq(AddressBook::getVersion, addressBook.getVersion())
+                        .setSql("version = version + 1");
+
+        boolean success = update(addressBook, wrapper);
+
+        if (!success) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_CHANGED);
+        }
     }
 
     /**
-     * 设置默认地址
+     * 设置默认地址，设置默认地址只改变：is_default，因此不递增 version
      */
     @Transactional(rollbackFor = Exception.class)
     @Override

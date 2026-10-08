@@ -90,13 +90,17 @@ public class Orders implements Serializable {
     //送达时间
     private LocalDateTime deliveryTime;
     //打包费
-    private int packAmount;
+    private BigDecimal packAmount;
     //餐具数量
     private int tablewareNumber;
     //餐具数量状态  1按餐量提供  0选择具体数量
     private Integer tablewareStatus;
-    /**
-     * 微信支付交易号
-     */
+    //微信支付交易号
     private String transactionId;
+    //商品价格
+    private BigDecimal goodsAmount;
+    //配送费
+    private BigDecimal deliveryFee;
+    //优惠金额
+    private BigDecimal discountAmount;
 }

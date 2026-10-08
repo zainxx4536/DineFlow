@@ -4,13 +4,11 @@ package com.dineflow.controller.user;
 import com.dineflow.dto.OrdersPageQueryDTO;
 import com.dineflow.dto.OrdersPaymentDTO;
 import com.dineflow.dto.OrdersSubmitDTO;
+import com.dineflow.dto.SettlementPreviewDTO;
 import com.dineflow.result.PageResult;
 import com.dineflow.result.Result;
 import com.dineflow.service.IOrdersService;
-import com.dineflow.vo.HistoryOrdersQueryVO;
-import com.dineflow.vo.OrderDetailVO;
-import com.dineflow.vo.OrderPaymentVO;
-import com.dineflow.vo.OrderSubmitVO;
+import com.dineflow.vo.*;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
@@ -109,5 +107,15 @@ public class OrdersController {
         log.info("用户催单：{}", id);
         ordersService.urgeOrder(id);
         return Result.success();
+    }
+
+    /**
+     * 订单金额预览接口
+     */
+    @PostMapping("/settlement/preview")
+    public Result<SettlementPreviewVO> preview(@RequestBody SettlementPreviewDTO settlementPreviewDTO) {
+        log.info("订单金额预览接口：{}", settlementPreviewDTO);
+        SettlementPreviewVO settlementPreview = ordersService.preview(settlementPreviewDTO);
+        return Result.success(settlementPreview);
     }
 }

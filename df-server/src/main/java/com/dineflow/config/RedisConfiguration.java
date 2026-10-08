@@ -27,8 +27,7 @@ public class RedisConfiguration {
      * Redis JSON 序列化器
      */
     @Bean
-    public GenericJackson2JsonRedisSerializer jsonRedisSerializer(
-            ObjectMapper objectMapper) {
+    public GenericJackson2JsonRedisSerializer jsonRedisSerializer(ObjectMapper objectMapper) {
 
         // 复制 Spring 已配置好的 ObjectMapper
         ObjectMapper redisObjectMapper = objectMapper.copy();
@@ -41,9 +40,7 @@ public class RedisConfiguration {
                 JsonTypeInfo.As.PROPERTY
         );
 
-        return new GenericJackson2JsonRedisSerializer(
-                redisObjectMapper
-        );
+        return new GenericJackson2JsonRedisSerializer(redisObjectMapper);
     }
 
     /**
@@ -54,26 +51,19 @@ public class RedisConfiguration {
             RedisConnectionFactory connectionFactory,
             GenericJackson2JsonRedisSerializer jsonRedisSerializer) {
 
-        RedisTemplate<String, Object> redisTemplate =
-                new RedisTemplate<>();
+        RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
 
         redisTemplate.setConnectionFactory(connectionFactory);
 
         // Key 使用 String
-        redisTemplate.setKeySerializer(
-                RedisSerializer.string()
-        );
-        redisTemplate.setHashKeySerializer(
-                RedisSerializer.string()
-        );
+        redisTemplate.setKeySerializer(RedisSerializer.string());
+
+        redisTemplate.setHashKeySerializer(RedisSerializer.string());
 
         // Value 使用 JSON
-        redisTemplate.setValueSerializer(
-                jsonRedisSerializer
-        );
-        redisTemplate.setHashValueSerializer(
-                jsonRedisSerializer
-        );
+        redisTemplate.setValueSerializer(jsonRedisSerializer);
+
+        redisTemplate.setHashValueSerializer(jsonRedisSerializer);
 
         return redisTemplate;
     }
@@ -86,29 +76,21 @@ public class RedisConfiguration {
             RedisConnectionFactory connectionFactory,
             GenericJackson2JsonRedisSerializer jsonRedisSerializer) {
 
-        RedisCacheConfiguration config =
-                RedisCacheConfiguration
-                        .defaultCacheConfig()
-
-                        .entryTtl(Duration.ofMinutes(30))
-
-                        // Key 使用 String
-                        .serializeKeysWith(
-                                RedisSerializationContext
-                                        .SerializationPair
-                                        .fromSerializer(
-                                                RedisSerializer.string()
-                                        )
-                        )
-
-                        // Value 使用 JSON
-                        .serializeValuesWith(
-                                RedisSerializationContext
-                                        .SerializationPair
-                                        .fromSerializer(
-                                                jsonRedisSerializer
-                                        )
-                        );
+        RedisCacheConfiguration config = RedisCacheConfiguration
+                .defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(30))
+                // Key 使用 String
+                .serializeKeysWith(
+                        RedisSerializationContext
+                                .SerializationPair
+                                .fromSerializer(RedisSerializer.string())
+                )
+                // Value 使用 JSON
+                .serializeValuesWith(
+                        RedisSerializationContext
+                                .SerializationPair
+                                .fromSerializer(jsonRedisSerializer)
+                );
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(config)

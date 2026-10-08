@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class MybatisConfiguration {
     @Bean
-    public MybatisPlusInterceptor mybatisPlusInterceptor(){
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
         //创建拦截器
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         //创建分页插件

@@ -52,6 +52,10 @@ public class ShoppingCart implements Serializable {
     //金额
     private BigDecimal amount;
 
+    //创建时间
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+
+    //购物车条目版本
+    private Long version;
 }
