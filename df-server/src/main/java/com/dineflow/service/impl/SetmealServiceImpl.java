@@ -168,8 +168,7 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
                         .set(Setmeal::getDescription, setmealDTO.getDescription())
                         .set(Setmeal::getImage, setmealDTO.getImage())
                         .set(Setmeal::getName, setmealDTO.getName())
-                        .set(Setmeal::getPrice, setmealDTO.getPrice())
-                        .set(Setmeal::getStatus, setmealDTO.getStatus());
+                        .set(Setmeal::getPrice, setmealDTO.getPrice());
 
         update(setmeal, wrapper);
 

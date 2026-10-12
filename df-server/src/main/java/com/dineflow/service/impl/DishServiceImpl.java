@@ -24,7 +24,9 @@ import com.dineflow.result.PageResult;
 import com.dineflow.service.IDishService;
 import com.dineflow.vo.DishVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -137,6 +139,16 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements ID
     /**
      * 修改菜品信息
      */
+    @Caching(evict = {
+            @CacheEvict(
+                    cacheNames = RedisKeyConstant.CATEGORY_DISH_FLAVOR,
+                    allEntries = true
+            ),
+            @CacheEvict(
+                    cacheNames = RedisKeyConstant.SETMEAL_DISH,
+                    allEntries = true
+            )
+    })
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void modifyDishInfo(DishDTO dishDTO) {

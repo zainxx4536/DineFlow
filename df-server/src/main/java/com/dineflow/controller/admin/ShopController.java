@@ -39,8 +39,9 @@ public class ShopController {
     public Result<Integer> getShopStatus() {
         log.info("管理者获取店铺的营业状态");
         String status = redisTemplate.opsForValue().get(RedisKeyConstant.SHOP_STATUS);
+        // Redis 没有营业状态时无法开店：缺失时按休息中展示
         if (StrUtil.isBlank(status)) {
-            throw new BaseException("店铺状态异常");
+            return Result.success(0);
         }
         return Result.success(Integer.valueOf(status));
     }

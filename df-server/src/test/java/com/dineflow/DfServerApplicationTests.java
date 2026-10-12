@@ -14,25 +14,16 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
-import org.apache.poi.ss.usermodel.DataFormatter;
-import org.apache.poi.xssf.usermodel.XSSFCell;
-import org.apache.poi.xssf.usermodel.XSSFRow;
-import org.apache.poi.xssf.usermodel.XSSFSheet;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.transaction.annotation.EnableTransactionManagement;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.time.LocalDateTime;
 
-@SpringBootTest
-@EnableTransactionManagement
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class DfServerApplicationTests {
 
     @Autowired
@@ -40,6 +31,9 @@ class DfServerApplicationTests {
 
     @Autowired
     private IEmployeeService employeeService;
+
+    @LocalServerPort
+    private int port;
 
     @Autowired
     private BaiduMapClient baiduMapClient;
@@ -73,7 +67,7 @@ class DfServerApplicationTests {
         //1. 创建HttpClient对象
         CloseableHttpClient httpClient = HttpClients.createDefault();
         //2. 创建请求对象
-        HttpGet httpGet = new HttpGet("http://localhost:8080/user/shop/status");
+        HttpGet httpGet = new HttpGet("http://localhost:"+ port +"/user/shop/status");
         //3. 发送请求，接收响应结果
         CloseableHttpResponse response = httpClient.execute(httpGet);
         //4. 解析响应结果
@@ -92,7 +86,7 @@ class DfServerApplicationTests {
         //1. 创建HttpClient对象
         CloseableHttpClient httpClient = HttpClients.createDefault();
         //2. 创建请求对象,并设置请求参数实体
-        HttpPost httpPost = new HttpPost("http://localhost:8080/admin/employee/login");
+        HttpPost httpPost = new HttpPost("http://localhost:"+ port +"/admin/employee/login");
 
         JSONObject jsonObject = new JSONObject();
         jsonObject.set("username", "admin");

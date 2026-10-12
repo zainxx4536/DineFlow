@@ -18,6 +18,7 @@ import com.dineflow.model.Coordinate;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.IOrdersService;
+import com.dineflow.service.IShoppingCartService;
 import com.dineflow.utils.BaiduMapClient;
 import com.dineflow.utils.RedisIdWorker;
 import com.dineflow.utils.ThreadLocalUtil;
@@ -64,6 +65,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     private final BaiduMapClient baiduMapClient;
 
     private final WebSocketServer webSocketServer;
+
+    private final IShoppingCartService shoppingCartService;
 
     public static final double DELIVERY_RANGE_METERS = 5000D;
 
@@ -130,7 +133,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 插入订单详情数据
         List<OrderDetail> orderDetailList = new ArrayList<>();
         for (ShoppingCart item : itemsList) {
-            OrderDetail orderDetail = BeanUtil.copyProperties(item, OrderDetail.class);
+            OrderDetail orderDetail = BeanUtil.copyProperties(item, OrderDetail.class, "id");
             orderDetail.setOrderId(order.getId());
             orderDetailList.add(orderDetail);
         }
@@ -473,21 +476,17 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         }
 
         // 4. 将订单明细重新放入当前用户购物车
-        List<ShoppingCart> shoppingCartList = orderDetailList.stream()
-                .map(orderDetail -> ShoppingCart.builder()
-                        .userId(userId)
-                        .dishId(orderDetail.getDishId())
-                        .setmealId(orderDetail.getSetmealId())
-                        .dishFlavor(orderDetail.getDishFlavor())
-                        .name(orderDetail.getName())
-                        .image(orderDetail.getImage())
-                        .amount(orderDetail.getAmount())
-                        .number(orderDetail.getNumber())
-                        .createTime(LocalDateTime.now())
-                        .build())
-                .toList();
+        for (OrderDetail detail : orderDetailList) {
+            ShoppingCartDTO dto = new ShoppingCartDTO();
+            dto.setDishId(detail.getDishId());
+            dto.setSetmealId(detail.getSetmealId());
+            dto.setDishFlavor(detail.getDishFlavor());
 
-        Db.saveBatch(shoppingCartList);
+            // 原订单有几份，就复用加购方法追加几份。
+            for (int i = 0; i < detail.getNumber(); i++) {
+                shoppingCartService.addItemsToCart(dto);
+            }
+        }
     }
 
     /**

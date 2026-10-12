@@ -39,6 +39,11 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 
         ShoppingCart shoppingCart = BeanUtil.copyProperties(shoppingCartDTO, ShoppingCart.class);
 
+        // 无口味统一存为 null，与后面的 IS NULL 查询保持一致。
+        if (StrUtil.isBlank(shoppingCart.getDishFlavor())) {
+            shoppingCart.setDishFlavor(null);
+        }
+
         shoppingCart.setUserId(userId);
 
         // 查询购物车中是否已经存在相同菜品/套餐
