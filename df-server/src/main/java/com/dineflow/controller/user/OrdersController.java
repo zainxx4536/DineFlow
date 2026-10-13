@@ -7,10 +7,7 @@ import com.dineflow.dto.OrdersSubmitDTO;
 import com.dineflow.result.PageResult;
 import com.dineflow.result.Result;
 import com.dineflow.service.IOrdersService;
-import com.dineflow.vo.HistoryOrdersQueryVO;
-import com.dineflow.vo.OrderDetailVO;
-import com.dineflow.vo.OrderPaymentVO;
-import com.dineflow.vo.OrderSubmitVO;
+import com.dineflow.vo.*;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
@@ -35,12 +32,23 @@ public class OrdersController {
     private final IOrdersService ordersService;
 
     /**
+     * 获取当前用户购物车的结算报价。
+     */
+    @PostMapping("/preview")
+    @ApiOperation("订单结算预览")
+    public Result<OrderPreviewVO> previewOrder() {
+        log.info("订单结算预览");
+        OrderPreviewVO preview = ordersService.previewOrder();
+        return Result.success(preview);
+    }
+
+    /**
      * 用户下单接口
      */
     @PostMapping("/submit")
-    @ApiOperation("用户下单")
+    @ApiOperation("提交订单")
     public Result<OrderSubmitVO> submitOrder(@RequestBody OrdersSubmitDTO ordersSubmitDTO) {
-        log.info("用户下单：{}", ordersSubmitDTO);
+        log.info("提交订单：{}", ordersSubmitDTO);
         OrderSubmitVO orderSubmitVO = ordersService.submitOrder(ordersSubmitDTO);
         return Result.success(orderSubmitVO);
     }

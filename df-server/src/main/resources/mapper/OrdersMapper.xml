@@ -25,8 +25,8 @@
             <if test="dto.endTime != null">
                 and o.order_time &lt;= #{dto.endTime}
             </if>
-            <if test="dto.number != null and dto.bumber != ''">
-                and o.status = #{dto.number}
+            <if test="dto.number != null and dto.number != ''">
+                and o.number = #{dto.number}
             </if>
             <if test="dto.phone != null">
                 and o.phone = #{dto.phone}

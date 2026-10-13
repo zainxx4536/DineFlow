@@ -5,6 +5,8 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.MessageConstant;
+import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.ShoppingCartDTO;
 import com.dineflow.entity.Dish;
 import com.dineflow.entity.Setmeal;
@@ -14,9 +16,13 @@ import com.dineflow.exception.InvalidParameterException;
 import com.dineflow.mapper.ShoppingCartMapper;
 import com.dineflow.service.IShoppingCartService;
 import com.dineflow.utils.ThreadLocalUtil;
+import com.dineflow.vo.ShoppingCartItemVO;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -72,14 +78,27 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
         ShoppingCart existedCart = getOne(wrapper);
 
         if (existedCart != null) {
-            // 已存在，数量 +1
-            lambdaUpdate()
+            // 已存在，数量 +1，同一商品的数量不能超过 100
+            boolean updated = lambdaUpdate()
                     .eq(ShoppingCart::getId, existedCart.getId())
+                    .eq(ShoppingCart::getUserId, userId)
+                    .ge(ShoppingCart::getNumber, 1)
+                    .lt(ShoppingCart::getNumber, 99)
                     .setSql("number = number + 1")
                     .update();
+            if (!updated) {
+                throw new InvalidParameterException("单项商品最多99份，或购物车已变化，请刷新后重试");
+            }
         } else {
             // 不存在，新增购物车记录，还要判断添加的到底是套餐还是菜品，获取图像和价格
-            // 新增购物车记录
+            // 新增购物车记录，前提购物车中的商品数不能超过100
+            long cartRows = lambdaQuery()
+                    .eq(ShoppingCart::getUserId, userId)
+                    .count();
+            if (cartRows >= 100) {
+                throw new InvalidParameterException("购物车最多支持100条商品");
+            }
+
             shoppingCart.setNumber(1);
 
             if (shoppingCart.getDishId() != null) {
@@ -121,16 +140,132 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
     }
 
     /**
-     * 查看购物车
+     * 查看购物车，同时校验购物车中商品的状态
      */
     @Override
-    public List<ShoppingCart> showShoppingCart() {
+    public List<ShoppingCartItemVO> showShoppingCart() {
         Long userId = ThreadLocalUtil.getCurrentId();
-        return lambdaQuery()
+
+        if (userId == null) {
+            throw new BaseException(MessageConstant.USER_NOT_LOGIN);
+        }
+
+        // 1. 查询用户购物车
+        List<ShoppingCart> shoppingCartList = lambdaQuery()
                 .eq(ShoppingCart::getUserId, userId)
                 .orderByDesc(ShoppingCart::getCreateTime)
                 .orderByDesc(ShoppingCart::getId)
                 .list();
+
+        if (shoppingCartList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 2. 分别提取菜品ID和套餐ID，Set自动去重
+        Set<Long> dishIds = shoppingCartList.stream()
+                .map(ShoppingCart::getDishId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Set<Long> setmealIds = shoppingCartList.stream()
+                .map(ShoppingCart::getSetmealId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 3. 批量查询，空集合不执行IN查询
+        Map<Long, Dish> dishMap = dishIds.isEmpty()
+                ? Collections.emptyMap()
+                : Db.lambdaQuery(Dish.class)
+                .in(Dish::getId, dishIds)
+                .list()
+                .stream()
+                .collect(Collectors.toMap(
+                        Dish::getId, Function.identity()
+                ));
+
+        Map<Long, Setmeal> setmealMap = setmealIds.isEmpty()
+                ? Collections.emptyMap()
+                : Db.lambdaQuery(Setmeal.class)
+                .in(Setmeal::getId, setmealIds)
+                .list()
+                .stream()
+                .collect(Collectors.toMap(
+                        Setmeal::getId, Function.identity()
+                ));
+
+        // 4. 组装返回结果，循环中不再查询数据库
+        List<ShoppingCartItemVO> result = new ArrayList<>();
+
+        for (ShoppingCart cart : shoppingCartList) {
+            // 先保留历史名称和图片，若商品已删除时仍能识别该条目
+            ShoppingCartItemVO vo = BeanUtil.copyProperties(cart, ShoppingCartItemVO.class);
+            vo.setCartId(cart.getId());
+            vo.setAvailable(false);
+            result.add(vo);
+
+            boolean hasDish = cart.getDishId() != null;
+            boolean hasSetmeal = cart.getSetmealId() != null;
+            // 商品类型即为菜品也为套餐 或 既不是菜品也不是套餐
+            if (hasDish == hasSetmeal) {
+                vo.setUnavailableReason("购物车商品类型异常");
+                continue;
+            }
+
+            BigDecimal price;
+            Integer status;
+            if (hasDish) {
+                Dish dish = dishMap.get(cart.getDishId());
+                if (dish == null) {
+                    vo.setUnavailableReason("菜品已删除或不存在");
+                    continue;
+                }
+                vo.setName(dish.getName());
+                vo.setImage(dish.getImage());
+                price = dish.getPrice();
+                status = dish.getStatus();
+            } else {
+                Setmeal setmeal = setmealMap.get(cart.getSetmealId());
+                if (setmeal == null) {
+                    vo.setUnavailableReason("套餐已删除或不存在");
+                    continue;
+                }
+                vo.setName(setmeal.getName());
+                vo.setImage(setmeal.getImage());
+                price = setmeal.getPrice();
+                status = setmeal.getStatus();
+            }
+            vo.setCurrentPrice(price);
+
+            if (!StatusConstant.ENABLE.equals(status)) {
+                vo.setUnavailableReason(hasDish ? "菜品已停售" : "套餐已停售");
+                continue;
+            }
+
+            if (price == null) {
+                vo.setUnavailableReason("商品价格未配置");
+                continue;
+            }
+
+            if (price.signum() <= 0
+                    || price.compareTo(new BigDecimal("99999999.99")) > 0
+                    || price.stripTrailingZeros().scale() > 2) {
+                vo.setUnavailableReason("商品价格异常");
+                continue;
+            }
+
+            Integer number = cart.getNumber();
+
+            if (number == null || number < 1 || number > 99) {
+                vo.setUnavailableReason("单项商品数量必须为1～99份");
+                continue;
+            }
+
+            BigDecimal subtotal = price.multiply(BigDecimal.valueOf(number));
+            vo.setSubtotal(subtotal);
+            vo.setAvailable(true);
+        }
+
+        return result;
     }
 
     /**

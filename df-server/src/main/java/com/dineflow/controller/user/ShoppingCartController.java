@@ -2,9 +2,9 @@ package com.dineflow.controller.user;
 
 
 import com.dineflow.dto.ShoppingCartDTO;
-import com.dineflow.entity.ShoppingCart;
 import com.dineflow.result.Result;
 import com.dineflow.service.IShoppingCartService;
+import com.dineflow.vo.ShoppingCartItemVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
@@ -46,9 +46,9 @@ public class ShoppingCartController {
      */
     @GetMapping("/list")
     @ApiOperation("查看购物车")
-    public Result<List<ShoppingCart>> showShoppingCart() {
+    public Result<List<ShoppingCartItemVO>> showShoppingCart() {
         log.info("查看购物车");
-        List<ShoppingCart> shoppingCarts = shoppingCartService.showShoppingCart();
+        List<ShoppingCartItemVO> shoppingCarts = shoppingCartService.showShoppingCart();
         return Result.success(shoppingCarts);
     }
 
