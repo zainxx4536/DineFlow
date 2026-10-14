@@ -13,9 +13,9 @@ import com.dineflow.dto.*;
 import com.dineflow.entity.*;
 import com.dineflow.exception.AddressBookBusinessException;
 import com.dineflow.exception.OrderBusinessException;
-import com.dineflow.exception.ShoppingCartBusinessException;
 import com.dineflow.mapper.OrdersMapper;
 import com.dineflow.model.Coordinate;
+import com.dineflow.order.service.OrderCreateTxService;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.IAddressBookService;
@@ -36,10 +36,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -78,110 +76,45 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
     public static final double DELIVERY_RANGE_METERS = 5000D;
 
+    private final OrderCreateTxService orderCreateTxService;
+
 
     /**
-     * 结算预览：读取当前商品信息，校验并计算报价。
-     * 只读，不创建订单，不删除购物车，也不锁定商品价格。
+     * C端-订单结算预览：检查营业状态，返回本次商品报价。
      */
     @Override
     public OrderPreviewVO previewOrder() {
-        Long userId = ThreadLocalUtil.getCurrentId();
-        if (userId == null) {
+
+        if (ThreadLocalUtil.getCurrentId() == null) {
             throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        // 1. 检查营业状态，沿用现有Redis中的事实来源
-        String shopStatus = redisTemplate.opsForValue().get(RedisKeyConstant.SHOP_STATUS);
-        if (!"0".equals(shopStatus) && !"1".equals(shopStatus)) {
+        checkShopOpen();
+
+        return orderCreateTxService.calculateQuote();
+    }
+
+    /**
+     * 检查营业状态，沿用现有Redis中的状态来源。
+     */
+    private void checkShopOpen() {
+
+        String status = redisTemplate.opsForValue()
+                .get(RedisKeyConstant.SHOP_STATUS);
+
+        if (!"0".equals(status) && !"1".equals(status)) {
             throw new OrderBusinessException(MessageConstant.SHOP_STATUS_ABNORMAL);
         }
-        if ("0".equals(shopStatus)) {
+
+        if ("0".equals(status)) {
             throw new OrderBusinessException("店铺暂未营业");
         }
-
-        // 2. 复用已完成的购物车查询：
-        // 按本人查询购物车，再批量读取商品当前价格和起售状态
-        List<ShoppingCartItemVO> carts = shoppingCartService.showShoppingCart();
-
-        if (carts.isEmpty()) {
-            throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
-        }
-
-        if (carts.size() > 100) {
-            throw new ShoppingCartBusinessException("购物车最多支持100条商品，请移除部分条目后再结算");
-        }
-
-        BigDecimal goodsAmount = new BigDecimal("0.00");
-        BigDecimal maxAmount = new BigDecimal("99999999.99");
-        int totalNumber = 0;
-
-        List<ShoppingCartItemVO> items = new ArrayList<>();
-
-        // 3. 校验每条商品，并按当前价格计算小计
-        for (ShoppingCartItemVO cart : carts) {
-            if (!Boolean.TRUE.equals(cart.getAvailable())) {
-                String reason = cart.getUnavailableReason();
-                throw new ShoppingCartBusinessException("购物车中含失效商品：" + (reason == null ? "商品不可售" : reason));
-            }
-
-            Integer number = cart.getNumber();
-
-            if (number == null || number < 1 || number > 99) {
-                throw new OrderBusinessException("单项商品数量必须为1～99份");
-            }
-
-            BigDecimal price = cart.getCurrentPrice();
-
-            if (price == null || price.signum() <= 0 || price.compareTo(maxAmount) > 0) {
-                throw new OrderBusinessException("商品价格异常");
-            }
-
-            BigDecimal subtotal = price.multiply(BigDecimal.valueOf(number));
-
-            goodsAmount = goodsAmount.add(subtotal);
-
-            // 对齐当前orders.amount的DECIMAL(10,2)范围
-            if (goodsAmount.compareTo(maxAmount) > 0) {
-                throw new OrderBusinessException("订单金额超出允许范围");
-            }
-
-            totalNumber += number;
-
-            // 数据来自后端本次读取的VO，不是客户端请求
-            ShoppingCartItemVO item = BeanUtil.copyProperties(cart, ShoppingCartItemVO.class);
-
-            item.setCurrentPrice(price);
-            item.setSubtotal(subtotal);
-
-            items.add(item);
-        }
-
-        // TODO 4. 当前阶段暂不收打包费、配送费
-        BigDecimal packAmount = new BigDecimal("0.00");
-        BigDecimal deliveryAmount = new BigDecimal("0.00");
-
-        BigDecimal payableAmount = goodsAmount
-                .add(packAmount)
-                .add(deliveryAmount);
-
-        // 5. 返回本次报价
-        OrderPreviewVO preview = new OrderPreviewVO();
-
-        preview.setItems(items);
-        preview.setGoodsAmount(goodsAmount);
-        preview.setPackAmount(packAmount);
-        preview.setDeliveryAmount(deliveryAmount);
-        preview.setPayableAmount(payableAmount);
-        preview.setTotalNumber(totalNumber);
-
-        return preview;
     }
 
     /**
      * C端-用户提交订单
      */
     @Override
-    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public OrderSubmitVO submitOrder(OrdersSubmitDTO dto) {
 
         Long userId = ThreadLocalUtil.getCurrentId();
@@ -190,135 +123,59 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        // 在查询地址、调用地图之前，先拒绝不合法的业务参数。
-        validateSubmitParams(dto);
+        orderCreateTxService.validateSubmitParams(dto);
 
         if (dto.getAddressBookId() == null || dto.getAddressBookId() <= 0) {
             throw new AddressBookBusinessException("请选择有效的收货地址");
         }
 
         if (dto.getAddressVersion() == null || dto.getAddressVersion() < 0) {
-            throw new AddressBookBusinessException("缺少有效的地址确认信息，请重新加载结算页面");
+            throw new AddressBookBusinessException("缺少有效的地址确认信息");
         }
 
-        // 1. 通过地址服务查询本人地址。
-        // 现有getAddressById()已经同时限制地址ID和当前用户ID。
-        AddressBook address = addressBookService.getAddressById(dto.getAddressBookId());
+        // 1. 查询本人地址，保留地图实际使用的对象。
+        AddressBook checkedAddress = addressBookService.getAddressById(dto.getAddressBookId());
 
-        if (address == null) {
+        if (checkedAddress == null) {
             throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
         }
 
-        // 2. 比较页面展示的地址版本与当前数据库版本。
-        if (!Objects.equals(dto.getAddressVersion(), address.getVersion())) {
+        if (!Objects.equals(dto.getAddressVersion(), checkedAddress.getVersion())) {
             throw new AddressBookBusinessException("收货地址已变化，请重新加载并确认");
         }
 
-        // 3. 使用这份已确认地址进行配送范围校验。
-        String wholeAddress = address.getProvinceName()
-                + address.getCityName()
-                + address.getDistrictName()
-                + address.getDetail();
+        String wholeAddress = orderCreateTxService.buildWholeAddress(checkedAddress);
 
+        // 2. 先拒绝已经失效的报价，减少无效地图请求。
+        // 这次检查不能替代后面的事务内复核。
+        orderCreateTxService.checkConfirmedQuote(dto, previewOrder());
+
+        // 3. 地图校验位于订单写事务之外。
         Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
 
         double distance = baiduMapClient.getDrivingDistance(coordinate);
+
+        if (!Double.isFinite(distance) || distance <= 0) {
+            throw new OrderBusinessException("配送距离数据异常");
+        }
 
         if (distance > DELIVERY_RANGE_METERS) {
             throw new AddressBookBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
         }
 
-        // 4. 原预览方法继续只负责商品校验和报价。
-        OrderPreviewVO latestQuote = previewOrder();
+        // 4. 地图调用后再次检查营业状态。
+        checkShopOpen();
 
-        // 比较购物车条目、版本、数量、单价和总金额。
-        checkConfirmedQuote(dto, latestQuote);
+        // Redis取号也位于数据库事务之外。
+        String orderNumber = String.valueOf(redisIdWorker.nextId("order"));
 
-        // 5. 地图调用和商品复核期间，地址可能再次被修改。
-        // 创建订单前再读取一次，检查是否仍是确认版本。
-        AddressBook currentAddress = addressBookService.getAddressById(dto.getAddressBookId());
-
-        if (currentAddress == null || !Objects.equals(dto.getAddressVersion(), currentAddress.getVersion())) {
-            throw new AddressBookBusinessException("收货地址已变化或被删除，请重新加载并确认");
+        try {
+            // 5. 通过独立Spring Bean进入数据库短事务。
+            return orderCreateTxService.createOrder(userId, dto, checkedAddress, orderNumber);
+        } catch (org.springframework.dao.PessimisticLockingFailureException e) {
+            // 到达这里时，事务代理已经结束并回滚create中的事务。
+            throw new OrderBusinessException("购物车操作冲突，请重新预览并确认");
         }
-
-        // 地图调用可能耗时，再校验一次，防止预约时间在等待期间已经过期。
-        validateSubmitParams(dto);
-
-        // 自动餐具份数由本次已复核报价决定。
-        // 必须在复制DTO之前设置，保证复制的是后端确定的数量。
-        if (Objects.equals(dto.getTablewareStatus(), 1)) {
-            dto.setTablewareNumber(latestQuote.getTotalNumber());
-        }
-
-        // 6. 创建订单，收件快照使用最初已确认的address。
-        Orders order = BeanUtil.copyProperties(dto, Orders.class);
-
-        order.setUserId(userId);
-        order.setAddressBookId(address.getId());
-
-        order.setNumber(String.valueOf(redisIdWorker.nextId("order")));
-
-        order.setStatus(Orders.PENDING_PAYMENT);
-        order.setPayStatus(Orders.UN_PAID);
-        order.setOrderTime(LocalDateTime.now());
-
-        order.setPhone(address.getPhone());
-        order.setAddress(wholeAddress);
-        order.setConsignee(address.getConsignee());
-
-        order.setAmount(latestQuote.getPayableAmount());
-        order.setPackAmount(latestQuote.getPackAmount());
-
-        if (!save(order)) {
-            throw new OrderBusinessException("订单创建失败");
-        }
-
-        // 7. 保存本次商品成交快照。
-        List<OrderDetail> details = new ArrayList<>();
-
-        for (ShoppingCartItemVO item : latestQuote.getItems()) {
-            OrderDetail detail = new OrderDetail();
-
-            detail.setOrderId(order.getId());
-            detail.setDishId(item.getDishId());
-            detail.setSetmealId(item.getSetmealId());
-
-            detail.setName(item.getName());
-            detail.setImage(item.getImage());
-            detail.setDishFlavor(item.getDishFlavor());
-            detail.setNumber(item.getNumber());
-
-            // 明细amount保存成交单价。
-            detail.setAmount(item.getCurrentPrice());
-
-            details.add(detail);
-        }
-
-        if (!Db.saveBatch(details)) {
-            throw new OrderBusinessException("订单明细保存失败");
-        }
-
-        // 8. 按条目ID、数量和版本删除本次成交购物车记录。
-        for (ShoppingCartItemVO item : latestQuote.getItems()) {
-            boolean removed = Db.lambdaUpdate(ShoppingCart.class)
-                    .eq(ShoppingCart::getUserId, userId)
-                    .eq(ShoppingCart::getId, item.getCartId())
-                    .eq(ShoppingCart::getNumber, item.getNumber())
-                    .eq(ShoppingCart::getVersion, item.getCartVersion())
-                    .remove();
-
-            if (!removed) {
-                throw new OrderBusinessException("购物车已变化，请重新预览并确认");
-            }
-        }
-
-        return OrderSubmitVO.builder()
-                .id(order.getId())
-                .orderNumber(order.getNumber())
-                .orderAmount(order.getAmount())
-                .orderTime(order.getOrderTime())
-                .build();
     }
 
     /**
@@ -1050,160 +907,5 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         throw new OrderBusinessException(
                 "微信退款状态异常：" + refundStatus
         );
-    }
-
-
-    /**
-     * 比较用户确认的数据与后端本次重新计算的报价。
-     * 任意一项不一致，都要求重新预览确认。
-     */
-    private void checkConfirmedQuote(OrdersSubmitDTO dto, OrderPreviewVO latestQuote) {
-
-        List<OrderSubmitItemDTO> confirmedItems = dto.getItems();
-
-        if (confirmedItems == null || confirmedItems.isEmpty()) {
-            throw new OrderBusinessException("缺少商品确认信息，请重新预览");
-        }
-
-        if (dto.getAmount() == null || dto.getAmount().signum() <= 0) {
-            throw new OrderBusinessException("确认金额不合法，请重新预览");
-        }
-
-        // 按购物车条目ID建立索引，不能按菜品ID建立索引：
-        // 同一菜品的不同口味可能对应多条购物车记录。
-        Map<Long, OrderSubmitItemDTO> confirmedMap = new HashMap<>();
-
-        for (OrderSubmitItemDTO item : confirmedItems) {
-            if (item == null
-                    || item.getCartId() == null
-                    || item.getCartId() <= 0
-                    || item.getCartVersion() == null
-                    || item.getCartVersion() < 0
-                    || item.getNumber() == null
-                    || item.getNumber() < 1
-                    || item.getNumber() > 99
-                    || item.getCurrentPrice() == null
-                    || item.getCurrentPrice().signum() <= 0) {
-                throw new OrderBusinessException("商品确认信息不完整或不合法，请重新预览");
-            }
-
-            // 不允许重复提交同一购物车条目。
-            if (confirmedMap.putIfAbsent(item.getCartId(), item) != null) {
-                throw new OrderBusinessException("商品确认信息重复");
-            }
-        }
-
-        List<ShoppingCartItemVO> latestItems = latestQuote.getItems();
-
-        // 增加或删除了购物车条目，需要重新确认。
-        if (confirmedMap.size() != latestItems.size()) {
-            throw new OrderBusinessException("购物车已变化，请重新预览并确认");
-        }
-
-        for (ShoppingCartItemVO latest : latestItems) {
-            OrderSubmitItemDTO confirmed = confirmedMap.get(latest.getCartId());
-
-            if (confirmed == null) {
-                throw new OrderBusinessException("购物车已变化，请重新预览并确认");
-            }
-
-            if (!Objects.equals(confirmed.getCartVersion(), latest.getCartVersion())) {
-                throw new OrderBusinessException("购物车已变化，请重新预览并确认");
-            }
-
-            // 检查商品身份、所选口味和数量是否发生变化。
-            if (!Objects.equals(confirmed.getDishId(), latest.getDishId())
-                    || !Objects.equals(confirmed.getSetmealId(), latest.getSetmealId())
-                    || !Objects.equals(confirmed.getDishFlavor(), latest.getDishFlavor())
-                    || !Objects.equals(confirmed.getNumber(), latest.getNumber())) {
-                throw new OrderBusinessException("购物车商品或数量已变化，请重新预览并确认");
-            }
-
-            // BigDecimal比较数值用compareTo：
-            // 18.0和18.00应当视为相同价格。
-            if (confirmed.getCurrentPrice().compareTo(latest.getCurrentPrice()) != 0) {
-                throw new OrderBusinessException("商品价格已变化，请重新预览并确认");
-            }
-        }
-
-        // 逐项比较通过后，再比较应付总金额。
-        if (dto.getAmount().compareTo(latestQuote.getPayableAmount()) != 0) {
-            throw new OrderBusinessException("订单金额已变化，请重新预览并确认");
-        }
-    }
-
-    /**
-     * 校验并规范化下单业务参数。
-     * 地址、商品、版本、价格确认继续由已有逻辑负责。
-     */
-    private void validateSubmitParams(OrdersSubmitDTO dto) {
-
-        if (dto == null) {
-            throw new OrderBusinessException("下单参数不能为空");
-        }
-
-        // 1. 本轮只支持微信支付。
-        // 当前payMethod为int，缺失时默认0，也会被拒绝。
-        if (!Objects.equals(dto.getPayMethod(), Orders.wechatPay)) {
-            throw new OrderBusinessException("暂不支持该支付方式");
-        }
-
-        // 2. 备注允许为空；去除首尾空格后最多100字符。
-        String remark = dto.getRemark();
-
-        if (remark != null) {
-            remark = remark.trim();
-
-            if (remark.length() > 100) {
-                throw new OrderBusinessException("订单备注不能超过100字符");
-            }
-
-            dto.setRemark(remark);
-        }
-
-        // 3. 配送类型必须为0预约、1即时。
-        Integer deliveryStatus = dto.getDeliveryStatus();
-
-        if (!Objects.equals(deliveryStatus, 0)
-                && !Objects.equals(deliveryStatus, 1)) {
-            throw new OrderBusinessException(
-                    "配送类型必须为0（预约）或1（即时）");
-        }
-
-        // 4. 预约配送要求未来时间；即时配送清除预约时间。
-        if (Objects.equals(deliveryStatus, 0)) {
-            LocalDateTime estimatedDeliveryTime =
-                    dto.getEstimatedDeliveryTime();
-
-            if (estimatedDeliveryTime == null
-                    || !estimatedDeliveryTime.isAfter(LocalDateTime.now())) {
-                throw new OrderBusinessException(
-                        "预约配送时间必须晚于当前时间");
-            }
-        } else {
-            dto.setEstimatedDeliveryTime(null);
-        }
-
-        // 5. 餐具类型必须为0手动、1按餐量。
-        Integer tablewareStatus = dto.getTablewareStatus();
-
-        if (!Objects.equals(tablewareStatus, 0)
-                && !Objects.equals(tablewareStatus, 1)) {
-            throw new OrderBusinessException(
-                    "餐具类型必须为0（手动）或1（按餐量）");
-        }
-
-        // 6. 手动选择时，允许0～6份；0表示无需餐具。
-        // 按餐量提供时忽略客户端数量，报价复核后由后端设置。
-        if (Objects.equals(tablewareStatus, 0)) {
-            Integer tablewareNumber = dto.getTablewareNumber();
-
-            if (tablewareNumber == null
-                    || tablewareNumber < 0
-                    || tablewareNumber > 6) {
-                throw new OrderBusinessException(
-                        "手动选择的餐具数量必须为0～6份");
-            }
-        }
     }
 }

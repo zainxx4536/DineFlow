@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
 <mapper namespace="com.dineflow.mapper.AddressBookMapper">
+
+    <select id="lockOwnedAddress" resultType="com.dineflow.entity.AddressBook"
+            useCache="false"
+            flushCache="true">
+        SELECT *
+        FROM address_book
+        WHERE id = #{addressBookId}
+          AND user_id = #{currentUserId}
+            FOR UPDATE
+    </select>
 
 </mapper>
