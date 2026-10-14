@@ -19,4 +19,6 @@ public class OrderSubmitItemDTO implements Serializable {
     private Integer number;
     // 用户确认的单价，来自preview返回的currentPrice
     private BigDecimal currentPrice;
+    // 用户确认时的购物车条目版本
+    private Integer cartVersion;
 }

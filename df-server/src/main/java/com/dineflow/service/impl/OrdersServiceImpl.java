@@ -283,6 +283,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                     .eq(ShoppingCart::getUserId, userId)
                     .eq(ShoppingCart::getId, item.getCartId())
                     .eq(ShoppingCart::getNumber, item.getNumber())
+                    .eq(ShoppingCart::getVersion, item.getCartVersion())
                     .remove();
 
             if (!removed) {
@@ -1054,11 +1055,15 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         for (OrderSubmitItemDTO item : confirmedItems) {
             if (item == null
                     || item.getCartId() == null
+                    || item.getCartId() <= 0
+                    || item.getCartVersion() == null
+                    || item.getCartVersion() < 0
                     || item.getNumber() == null
-                    || item.getNumber() <= 0
+                    || item.getNumber() < 1
+                    || item.getNumber() > 99
                     || item.getCurrentPrice() == null
                     || item.getCurrentPrice().signum() <= 0) {
-                throw new OrderBusinessException("商品确认信息不完整，请重新预览");
+                throw new OrderBusinessException("商品确认信息不完整或不合法，请重新预览");
             }
 
             // 不允许重复提交同一购物车条目。
@@ -1078,6 +1083,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             OrderSubmitItemDTO confirmed = confirmedMap.get(latest.getCartId());
 
             if (confirmed == null) {
+                throw new OrderBusinessException("购物车已变化，请重新预览并确认");
+            }
+
+            if (!Objects.equals(confirmed.getCartVersion(), latest.getCartVersion())) {
                 throw new OrderBusinessException("购物车已变化，请重新预览并确认");
             }
 

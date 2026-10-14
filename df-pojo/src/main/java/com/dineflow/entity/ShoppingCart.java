@@ -54,4 +54,7 @@ public class ShoppingCart implements Serializable {
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+
+    // 购物车条目版本号
+    private Integer version;
 }

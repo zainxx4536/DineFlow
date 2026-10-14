@@ -29,4 +29,7 @@ public class ShoppingCartItemVO {
 
     private Boolean available;
     private String unavailableReason;
+
+    // 本次查询时的购物车条目版本
+    private Integer cartVersion;
 }

@@ -79,12 +79,14 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 
         if (existedCart != null) {
             // 已存在，数量 +1，同一商品的数量不能超过 100
+            // 数量和版本在同一条UPDATE中递增。
             boolean updated = lambdaUpdate()
                     .eq(ShoppingCart::getId, existedCart.getId())
                     .eq(ShoppingCart::getUserId, userId)
                     .ge(ShoppingCart::getNumber, 1)
                     .lt(ShoppingCart::getNumber, 99)
                     .setSql("number = number + 1")
+                    .setSql("version = version + 1")
                     .update();
             if (!updated) {
                 throw new InvalidParameterException("单项商品最多99份，或购物车已变化，请刷新后重试");
@@ -100,6 +102,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
             }
 
             shoppingCart.setNumber(1);
+            shoppingCart.setVersion(0);
 
             if (shoppingCart.getDishId() != null) {
 
@@ -200,8 +203,17 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
             // 先保留历史名称和图片，若商品已删除时仍能识别该条目
             ShoppingCartItemVO vo = BeanUtil.copyProperties(cart, ShoppingCartItemVO.class);
             vo.setCartId(cart.getId());
+
+            // Entity叫version，VO叫cartVersion，必须显式赋值。
+            vo.setCartVersion(cart.getVersion());
+
             vo.setAvailable(false);
             result.add(vo);
+
+            if (cart.getVersion() == null || cart.getVersion() < 0) {
+                vo.setUnavailableReason("购物车版本异常");
+                continue;
+            }
 
             boolean hasDish = cart.getDishId() != null;
             boolean hasSetmeal = cart.getSetmealId() != null;
@@ -272,31 +284,34 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
      * 购物车中的商品数量减一
      */
     @Override
-    public void subItemToCart(ShoppingCartDTO shoppingCartDTO) {
+    public void subItemToCart(ShoppingCartDTO dto) {
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
-        ShoppingCart shoppingCart = BeanUtil.copyProperties(shoppingCartDTO, ShoppingCart.class);
+        if (userId == null) {
+            throw new BaseException(MessageConstant.USER_NOT_LOGIN);
+        }
 
-        shoppingCart.setUserId(userId);
+        if (dto == null) {
+            throw new InvalidParameterException("购物车参数不能为空");
+        }
+
+        boolean hasDish = dto.getDishId() != null;
+        boolean hasSetmeal = dto.getSetmealId() != null;
+
+        if (hasDish == hasSetmeal) {
+            throw new InvalidParameterException("菜品ID和套餐ID必须且只能填写一个");
+        }
 
         LambdaQueryWrapper<ShoppingCart> wrapper =
                 new LambdaQueryWrapper<ShoppingCart>()
                         .eq(ShoppingCart::getUserId, userId)
-                        .eq(shoppingCart.getSetmealId() != null,
-                                ShoppingCart::getSetmealId,
-                                shoppingCart.getSetmealId())
-                        .eq(shoppingCart.getDishId() != null,
-                                ShoppingCart::getDishId,
-                                shoppingCart.getDishId());
+                        .eq(hasDish, ShoppingCart::getDishId, dto.getDishId())
+                        .eq(hasSetmeal, ShoppingCart::getSetmealId, dto.getSetmealId());
 
-        // 菜品还需要区分口味
-        if (shoppingCart.getDishId() != null) {
-            if (StrUtil.isNotBlank(shoppingCart.getDishFlavor())) {
-                wrapper.eq(
-                        ShoppingCart::getDishFlavor,
-                        shoppingCart.getDishFlavor()
-                );
+        if (hasDish) {
+            if (StrUtil.isNotBlank(dto.getDishFlavor())) {
+                wrapper.eq(ShoppingCart::getDishFlavor, dto.getDishFlavor());
             } else {
                 wrapper.isNull(ShoppingCart::getDishFlavor);
             }
@@ -308,15 +323,38 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
             return;
         }
 
-        // 数量大于1，数量减1
-        if (existedCart.getNumber() > 1) {
-            lambdaUpdate()
+        Integer number = existedCart.getNumber();
+        Integer version = existedCart.getVersion();
+
+        if (number == null || number < 1 || version == null || version < 0) {
+            throw new InvalidParameterException("购物车数据异常，请清空后重新加购");
+        }
+
+        boolean changed;
+
+        if (number > 1) {
+            // 只有查询后没有被修改，才能执行本次减一。
+            changed = lambdaUpdate()
                     .eq(ShoppingCart::getId, existedCart.getId())
+                    .eq(ShoppingCart::getUserId, userId)
+                    .eq(ShoppingCart::getVersion, version)
+                    .gt(ShoppingCart::getNumber, 1)
                     .setSql("number = number - 1")
+                    .setSql("version = version + 1")
                     .update();
         } else {
-            // 数量为1，直接删除购物车记录
-            removeById(existedCart.getId());
+            // 数量为1时删除记录。
+            // 版本和数量条件防止把查询后被加购的记录直接删除。
+            changed = lambdaUpdate()
+                    .eq(ShoppingCart::getId, existedCart.getId())
+                    .eq(ShoppingCart::getUserId, userId)
+                    .eq(ShoppingCart::getVersion, version)
+                    .eq(ShoppingCart::getNumber, 1)
+                    .remove();
+        }
+
+        if (!changed) {
+            throw new InvalidParameterException("购物车已变化，请刷新后重试");
         }
     }
 
