@@ -18,6 +18,7 @@ import com.dineflow.mapper.OrdersMapper;
 import com.dineflow.model.Coordinate;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
+import com.dineflow.service.IAddressBookService;
 import com.dineflow.service.IOrdersService;
 import com.dineflow.service.IShoppingCartService;
 import com.dineflow.utils.BaiduMapClient;
@@ -72,6 +73,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     private final WebSocketServer webSocketServer;
 
     private final IShoppingCartService shoppingCartService;
+
+    private final IAddressBookService addressBookService;
 
     public static final double DELIVERY_RANGE_METERS = 5000D;
 
@@ -182,25 +185,36 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     public OrderSubmitVO submitOrder(OrdersSubmitDTO dto) {
 
         Long userId = ThreadLocalUtil.getCurrentId();
+
         if (userId == null) {
             throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        if (dto == null || dto.getAddressBookId() == null) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        // 在查询地址、调用地图之前，先拒绝不合法的业务参数。
+        validateSubmitParams(dto);
+
+        if (dto.getAddressBookId() == null || dto.getAddressBookId() <= 0) {
+            throw new AddressBookBusinessException("请选择有效的收货地址");
         }
 
-        // 1. 查询本人收货地址
-        AddressBook address = Db.lambdaQuery(AddressBook.class)
-                .eq(AddressBook::getId, dto.getAddressBookId())
-                .eq(AddressBook::getUserId, userId)
-                .one();
+        if (dto.getAddressVersion() == null || dto.getAddressVersion() < 0) {
+            throw new AddressBookBusinessException("缺少有效的地址确认信息，请重新加载结算页面");
+        }
+
+        // 1. 通过地址服务查询本人地址。
+        // 现有getAddressById()已经同时限制地址ID和当前用户ID。
+        AddressBook address = addressBookService.getAddressById(dto.getAddressBookId());
 
         if (address == null) {
             throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
         }
 
-        // 2. 沿用原有配送范围校验
+        // 2. 比较页面展示的地址版本与当前数据库版本。
+        if (!Objects.equals(dto.getAddressVersion(), address.getVersion())) {
+            throw new AddressBookBusinessException("收货地址已变化，请重新加载并确认");
+        }
+
+        // 3. 使用这份已确认地址进行配送范围校验。
         String wholeAddress = address.getProvinceName()
                 + address.getCityName()
                 + address.getDistrictName()
@@ -214,16 +228,30 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new AddressBookBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
         }
 
-        // 3. 重新读取商品并计算报价
-        // 包括：营业状态、购物车非空、商品可售状态、当前价格等校验
-        // 不采用 shopping_cart.amount
+        // 4. 原预览方法继续只负责商品校验和报价。
         OrderPreviewVO latestQuote = previewOrder();
 
-        // 4. 与用户确认的数据比较
-        // 失败会直接抛异常，不创建订单
+        // 比较购物车条目、版本、数量、单价和总金额。
         checkConfirmedQuote(dto, latestQuote);
 
-        // 5. 创建订单
+        // 5. 地图调用和商品复核期间，地址可能再次被修改。
+        // 创建订单前再读取一次，检查是否仍是确认版本。
+        AddressBook currentAddress = addressBookService.getAddressById(dto.getAddressBookId());
+
+        if (currentAddress == null || !Objects.equals(dto.getAddressVersion(), currentAddress.getVersion())) {
+            throw new AddressBookBusinessException("收货地址已变化或被删除，请重新加载并确认");
+        }
+
+        // 地图调用可能耗时，再校验一次，防止预约时间在等待期间已经过期。
+        validateSubmitParams(dto);
+
+        // 自动餐具份数由本次已复核报价决定。
+        // 必须在复制DTO之前设置，保证复制的是后端确定的数量。
+        if (Objects.equals(dto.getTablewareStatus(), 1)) {
+            dto.setTablewareNumber(latestQuote.getTotalNumber());
+        }
+
+        // 6. 创建订单，收件快照使用最初已确认的address。
         Orders order = BeanUtil.copyProperties(dto, Orders.class);
 
         order.setUserId(userId);
@@ -239,17 +267,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         order.setAddress(wholeAddress);
         order.setConsignee(address.getConsignee());
 
-        // 保存本次复核采用的应付金额
         order.setAmount(latestQuote.getPayableAmount());
-
         order.setPackAmount(latestQuote.getPackAmount());
 
         if (!save(order)) {
             throw new OrderBusinessException("订单创建失败");
         }
 
-        // 6. 使用本次复核的商品信息构建成交快照（订单细节）
-        // 不再直接复制 ShoppingCart 实体
+        // 7. 保存本次商品成交快照。
         List<OrderDetail> details = new ArrayList<>();
 
         for (ShoppingCartItemVO item : latestQuote.getItems()) {
@@ -262,10 +287,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             detail.setName(item.getName());
             detail.setImage(item.getImage());
             detail.setDishFlavor(item.getDishFlavor());
-
             detail.setNumber(item.getNumber());
 
-            // 注意：order_detail.amount 存储成交单价，不是小计
+            // 明细amount保存成交单价。
             detail.setAmount(item.getCurrentPrice());
 
             details.add(detail);
@@ -275,9 +299,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new OrderBusinessException("订单明细保存失败");
         }
 
-        // 7. 删除本次成交的购物车条目
-        // 同时校验数量，若复核后数量又被修改，则回滚本次下单
-        // 避免按 userId 直接清空后来新增的其他条目
+        // 8. 按条目ID、数量和版本删除本次成交购物车记录。
         for (ShoppingCartItemVO item : latestQuote.getItems()) {
             boolean removed = Db.lambdaUpdate(ShoppingCart.class)
                     .eq(ShoppingCart::getUserId, userId)
@@ -291,7 +313,6 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             }
         }
 
-        // 8. 返回创建结果
         return OrderSubmitVO.builder()
                 .id(order.getId())
                 .orderNumber(order.getNumber())
@@ -1108,6 +1129,81 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 逐项比较通过后，再比较应付总金额。
         if (dto.getAmount().compareTo(latestQuote.getPayableAmount()) != 0) {
             throw new OrderBusinessException("订单金额已变化，请重新预览并确认");
+        }
+    }
+
+    /**
+     * 校验并规范化下单业务参数。
+     * 地址、商品、版本、价格确认继续由已有逻辑负责。
+     */
+    private void validateSubmitParams(OrdersSubmitDTO dto) {
+
+        if (dto == null) {
+            throw new OrderBusinessException("下单参数不能为空");
+        }
+
+        // 1. 本轮只支持微信支付。
+        // 当前payMethod为int，缺失时默认0，也会被拒绝。
+        if (!Objects.equals(dto.getPayMethod(), Orders.wechatPay)) {
+            throw new OrderBusinessException("暂不支持该支付方式");
+        }
+
+        // 2. 备注允许为空；去除首尾空格后最多100字符。
+        String remark = dto.getRemark();
+
+        if (remark != null) {
+            remark = remark.trim();
+
+            if (remark.length() > 100) {
+                throw new OrderBusinessException("订单备注不能超过100字符");
+            }
+
+            dto.setRemark(remark);
+        }
+
+        // 3. 配送类型必须为0预约、1即时。
+        Integer deliveryStatus = dto.getDeliveryStatus();
+
+        if (!Objects.equals(deliveryStatus, 0)
+                && !Objects.equals(deliveryStatus, 1)) {
+            throw new OrderBusinessException(
+                    "配送类型必须为0（预约）或1（即时）");
+        }
+
+        // 4. 预约配送要求未来时间；即时配送清除预约时间。
+        if (Objects.equals(deliveryStatus, 0)) {
+            LocalDateTime estimatedDeliveryTime =
+                    dto.getEstimatedDeliveryTime();
+
+            if (estimatedDeliveryTime == null
+                    || !estimatedDeliveryTime.isAfter(LocalDateTime.now())) {
+                throw new OrderBusinessException(
+                        "预约配送时间必须晚于当前时间");
+            }
+        } else {
+            dto.setEstimatedDeliveryTime(null);
+        }
+
+        // 5. 餐具类型必须为0手动、1按餐量。
+        Integer tablewareStatus = dto.getTablewareStatus();
+
+        if (!Objects.equals(tablewareStatus, 0)
+                && !Objects.equals(tablewareStatus, 1)) {
+            throw new OrderBusinessException(
+                    "餐具类型必须为0（手动）或1（按餐量）");
+        }
+
+        // 6. 手动选择时，允许0～6份；0表示无需餐具。
+        // 按餐量提供时忽略客户端数量，报价复核后由后端设置。
+        if (Objects.equals(tablewareStatus, 0)) {
+            Integer tablewareNumber = dto.getTablewareNumber();
+
+            if (tablewareNumber == null
+                    || tablewareNumber < 0
+                    || tablewareNumber > 6) {
+                throw new OrderBusinessException(
+                        "手动选择的餐具数量必须为0～6份");
+            }
         }
     }
 }

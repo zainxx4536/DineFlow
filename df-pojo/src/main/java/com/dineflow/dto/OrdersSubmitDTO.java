@@ -16,6 +16,9 @@ public class OrdersSubmitDTO implements Serializable {
     @ApiModelProperty("地址簿ID")
     private Long addressBookId;
 
+    @ApiModelProperty("页面展示地址对应的确认版本")
+    private Integer addressVersion;
+
     @ApiModelProperty("付款方式")
     private int payMethod;
 

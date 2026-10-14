@@ -1,7 +1,7 @@
 package com.dineflow.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.dineflow.constant.MessageConstant;
 import com.dineflow.entity.AddressBook;
 import com.dineflow.exception.BaseException;
 import com.dineflow.mapper.AddressBookMapper;
@@ -37,10 +37,26 @@ public class AddressBookServiceImpl extends ServiceImpl<AddressBookMapper, Addre
      */
     @Override
     public void addAddress(AddressBook addressBook) {
+
         Long userId = ThreadLocalUtil.getCurrentId();
+
+        if (userId == null) {
+            throw new BaseException(MessageConstant.USER_NOT_LOGIN);
+        }
+
+        if (addressBook == null) {
+            throw new BaseException("地址参数不能为空");
+        }
+
+        // 由后端确定，忽略客户端传入的值。
+        addressBook.setId(null);
         addressBook.setUserId(userId);
         addressBook.setIsDefault(0);
-        save(addressBook);
+        addressBook.setVersion(0);
+
+        if (!save(addressBook)) {
+            throw new BaseException("地址新增失败");
+        }
     }
 
     /**
@@ -60,11 +76,41 @@ public class AddressBookServiceImpl extends ServiceImpl<AddressBookMapper, Addre
      */
     @Override
     public void modifyAddressById(AddressBook addressBook) {
+
         Long userId = ThreadLocalUtil.getCurrentId();
-        LambdaUpdateWrapper<AddressBook> wrapper = new LambdaUpdateWrapper<AddressBook>()
+
+        if (userId == null) {
+            throw new BaseException(MessageConstant.USER_NOT_LOGIN);
+        }
+
+        if (addressBook == null
+                || addressBook.getId() == null
+                || addressBook.getId() <= 0) {
+            throw new BaseException("地址ID不合法");
+        }
+
+        // 当前前端提交完整地址表单。
+        // 显式更新可编辑字段，避免客户端覆盖归属、默认状态或版本。
+        boolean updated = lambdaUpdate()
+                .eq(AddressBook::getId, addressBook.getId())
                 .eq(AddressBook::getUserId, userId)
-                .eq(AddressBook::getId, addressBook.getId());
-        update(addressBook, wrapper);
+                .set(AddressBook::getConsignee, addressBook.getConsignee())
+                .set(AddressBook::getPhone, addressBook.getPhone())
+                .set(AddressBook::getSex, addressBook.getSex())
+                .set(AddressBook::getProvinceCode, addressBook.getProvinceCode())
+                .set(AddressBook::getProvinceName, addressBook.getProvinceName())
+                .set(AddressBook::getCityCode, addressBook.getCityCode())
+                .set(AddressBook::getCityName, addressBook.getCityName())
+                .set(AddressBook::getDistrictCode, addressBook.getDistrictCode())
+                .set(AddressBook::getDistrictName, addressBook.getDistrictName())
+                .set(AddressBook::getDetail, addressBook.getDetail())
+                .set(AddressBook::getLabel, addressBook.getLabel())
+                .setSql("version = version + 1")
+                .update();
+
+        if (!updated) {
+            throw new BaseException("地址不存在或不属于当前用户");
+        }
     }
 
     /**
