@@ -2,6 +2,7 @@ package com.dineflow.controller.user;
 
 
 import com.dineflow.dto.ShoppingCartDTO;
+import com.dineflow.dto.ShoppingCartSubDTO;
 import com.dineflow.result.Result;
 import com.dineflow.service.IShoppingCartService;
 import com.dineflow.vo.ShoppingCartItemVO;
@@ -53,13 +54,24 @@ public class ShoppingCartController {
     }
 
     /**
-     * 删除购物车中的一个商品
+     * 购物车指定条目数量减一。
      */
     @PostMapping("/sub")
-    @ApiOperation("删除购物车中的一个商品")
-    public Result<String> subItemToCart(@RequestBody ShoppingCartDTO shoppingCartDTO){
-        log.info("删除购物车中的一个商品：{}", shoppingCartDTO);
-        shoppingCartService.subItemToCart(shoppingCartDTO);
+    @ApiOperation("购物车指定条目数量减一")
+    public Result<String> subItemToCart(@RequestBody ShoppingCartSubDTO dto) {
+        shoppingCartService.subItemToCart(dto);
+        return Result.success();
+    }
+
+    /**
+     * 移除购物车中的整条记录。
+     */
+    @DeleteMapping("/{cartId}")
+    @ApiOperation("移除购物车指定条目")
+    public Result<String> removeItemFromCart(
+            @PathVariable("cartId") Long cartId) {
+
+        shoppingCartService.removeItemFromCart(cartId);
         return Result.success();
     }
 

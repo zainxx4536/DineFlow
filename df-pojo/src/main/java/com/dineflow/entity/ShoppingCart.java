@@ -57,4 +57,7 @@ public class ShoppingCart implements Serializable {
 
     // 购物车条目版本号
     private Integer version;
+
+    //同款商品标识，由商品类型、商品ID、口味生成
+    private String itemKey;
 }

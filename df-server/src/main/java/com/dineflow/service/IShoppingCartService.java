@@ -2,6 +2,7 @@ package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
 import com.dineflow.dto.ShoppingCartDTO;
+import com.dineflow.dto.ShoppingCartSubDTO;
 import com.dineflow.entity.ShoppingCart;
 import com.dineflow.vo.ShoppingCartItemVO;
 
@@ -21,7 +22,9 @@ public interface IShoppingCartService extends IService<ShoppingCart> {
 
     List<ShoppingCartItemVO> showShoppingCart();
 
-    void subItemToCart(ShoppingCartDTO shoppingCartDTO);
+    void subItemToCart(ShoppingCartSubDTO dto);
 
     void cleanShoppingCart();
+
+    void removeItemFromCart(Long cartId);
 }

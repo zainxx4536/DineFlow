@@ -1,13 +1,12 @@
 package com.dineflow.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.dineflow.constant.MessageConstant;
 import com.dineflow.constant.StatusConstant;
 import com.dineflow.dto.ShoppingCartDTO;
+import com.dineflow.dto.ShoppingCartSubDTO;
 import com.dineflow.entity.Dish;
 import com.dineflow.entity.Setmeal;
 import com.dineflow.entity.ShoppingCart;
@@ -15,13 +14,17 @@ import com.dineflow.exception.BaseException;
 import com.dineflow.exception.InvalidParameterException;
 import com.dineflow.mapper.ShoppingCartMapper;
 import com.dineflow.service.IShoppingCartService;
+import com.dineflow.utils.CartItemKeyUtil;
 import com.dineflow.utils.ThreadLocalUtil;
 import com.dineflow.vo.ShoppingCartItemVO;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.util.*;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -36,109 +39,134 @@ import java.util.stream.Collectors;
 public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, ShoppingCart> implements IShoppingCartService {
 
     /**
-     * 向购物车添加菜品或套餐
+     * 精确识别本次购物车同款唯一约束。
+     */
+    private static final Pattern CART_UNIQUE_CONSTRAINT = Pattern.compile(
+            "for key ['`](?:[^'`]+\\.)?uk_cart_user_item['`]",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    /**
+     * 向购物车添加菜品或套餐。
      */
     @Override
-    public void addItemsToCart(ShoppingCartDTO shoppingCartDTO) {
-
+    public void addItemsToCart(ShoppingCartDTO dto) {
         Long userId = ThreadLocalUtil.getCurrentId();
 
-        ShoppingCart shoppingCart = BeanUtil.copyProperties(shoppingCartDTO, ShoppingCart.class);
-
-        // 无口味统一存为 null，与后面的 IS NULL 查询保持一致。
-        if (StrUtil.isBlank(shoppingCart.getDishFlavor())) {
-            shoppingCart.setDishFlavor(null);
+        if (userId == null) {
+            throw new BaseException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        shoppingCart.setUserId(userId);
+        if (dto == null) {
+            throw new InvalidParameterException("购物车参数不能为空");
+        }
 
-        // 查询购物车中是否已经存在相同菜品/套餐
-        LambdaQueryWrapper<ShoppingCart> wrapper =
-                new LambdaQueryWrapper<ShoppingCart>()
-                        .eq(ShoppingCart::getUserId, userId)
-                        .eq(shoppingCart.getSetmealId() != null,
-                                ShoppingCart::getSetmealId,
-                                shoppingCart.getSetmealId())
-                        .eq(shoppingCart.getDishId() != null,
-                                ShoppingCart::getDishId,
-                                shoppingCart.getDishId());
+        // 1. 规范化口味，并生成同款标识。
+        String flavor = CartItemKeyUtil.normalizeFlavor(dto.getDishFlavor());
 
-        // 菜品还需要区分口味
-        if (shoppingCart.getDishId() != null) {
-            if (StrUtil.isNotBlank(shoppingCart.getDishFlavor())) {
-                wrapper.eq(
-                        ShoppingCart::getDishFlavor,
-                        shoppingCart.getDishFlavor()
-                );
-            } else {
-                wrapper.isNull(ShoppingCart::getDishFlavor);
+        String itemKey = CartItemKeyUtil.build(dto.getDishId(), dto.getSetmealId(), flavor);
+
+        ShoppingCart cart = BeanUtil.copyProperties(dto, ShoppingCart.class);
+        cart.setUserId(userId);
+        cart.setDishFlavor(flavor);
+        cart.setItemKey(itemKey);
+
+        // 2. 首次加购和已有同款追加，都检查当前商品是否可售。
+        if (cart.getDishId() != null) {
+            Dish dish = Db.lambdaQuery(Dish.class)
+                    .eq(Dish::getId, cart.getDishId())
+                    .one();
+
+            if (dish == null || !StatusConstant.ENABLE.equals(dish.getStatus())) {
+                throw new InvalidParameterException("菜品不存在或已停售");
             }
+
+            cart.setName(dish.getName());
+            cart.setImage(dish.getImage());
+            cart.setAmount(dish.getPrice());
+        } else {
+            Setmeal setmeal = Db.lambdaQuery(Setmeal.class)
+                    .eq(Setmeal::getId, cart.getSetmealId())
+                    .one();
+
+            if (setmeal == null || !StatusConstant.ENABLE.equals(setmeal.getStatus())) {
+                throw new InvalidParameterException("套餐不存在或已停售");
+            }
+
+            cart.setName(setmeal.getName());
+            cart.setImage(setmeal.getImage());
+            cart.setAmount(setmeal.getPrice());
         }
 
-        ShoppingCart existedCart = getOne(wrapper);
+        BigDecimal price = cart.getAmount();
 
-        if (existedCart != null) {
-            // 已存在，数量 +1，同一商品的数量不能超过 100
-            // 数量和版本在同一条UPDATE中递增。
+        if (price == null
+                || price.signum() <= 0
+                || price.compareTo(new BigDecimal("99999999.99")) > 0
+                || price.stripTrailingZeros().scale() > 2) {
+            throw new InvalidParameterException("商品价格异常");
+        }
+
+        // 3. 通过“当前用户 + item_key”查询同款记录。
+        ShoppingCart existed = lambdaQuery()
+                .eq(ShoppingCart::getUserId, userId)
+                .eq(ShoppingCart::getItemKey, itemKey)
+                .one();
+
+        // 4. 已有同款，使用 SQL 原子加一。
+        if (existed != null) {
             boolean updated = lambdaUpdate()
-                    .eq(ShoppingCart::getId, existedCart.getId())
+                    .eq(ShoppingCart::getId, existed.getId())
                     .eq(ShoppingCart::getUserId, userId)
+                    .eq(ShoppingCart::getItemKey, itemKey)
                     .ge(ShoppingCart::getNumber, 1)
                     .lt(ShoppingCart::getNumber, 99)
+                    .ge(ShoppingCart::getVersion, 0)
+                    .lt(ShoppingCart::getVersion, Integer.MAX_VALUE)
                     .setSql("number = number + 1")
                     .setSql("version = version + 1")
                     .update();
+
             if (!updated) {
                 throw new InvalidParameterException("单项商品最多99份，或购物车已变化，请刷新后重试");
             }
-        } else {
-            // 不存在，新增购物车记录，还要判断添加的到底是套餐还是菜品，获取图像和价格
-            // 新增购物车记录，前提购物车中的商品数不能超过100
-            long cartRows = lambdaQuery()
-                    .eq(ShoppingCart::getUserId, userId)
-                    .count();
-            if (cartRows >= 100) {
-                throw new InvalidParameterException("购物车最多支持100条商品");
+
+            return;
+        }
+
+        // 5. 没有同款，先检查购物车条目数。
+        long rows = lambdaQuery()
+                .eq(ShoppingCart::getUserId, userId)
+                .count();
+
+        if (rows >= 100) {
+            throw new InvalidParameterException("购物车最多支持100条商品");
+        }
+
+        cart.setNumber(1);
+        cart.setVersion(0);
+
+        // 6. 首次插入，由数据库联合唯一约束兜底。
+        try {
+            int inserted = baseMapper.insert(cart);
+            if (inserted != 1) {
+                throw new BaseException("商品加入购物车失败");
+            }
+        } catch (DuplicateKeyException exception) {
+            //判断是否为 uk_cart_user_item 唯一约束冲突。
+            for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+                if (cause instanceof SQLException sql
+                        && sql.getErrorCode() == 1062
+                        && sql.getMessage() != null
+                        && CART_UNIQUE_CONSTRAINT
+                        .matcher(sql.getMessage())
+                        .find()) {
+                    throw new InvalidParameterException("购物车已变化，请刷新后重试");
+                }
             }
 
-            shoppingCart.setNumber(1);
-            shoppingCart.setVersion(0);
-
-            if (shoppingCart.getDishId() != null) {
-
-                // 查询菜品信息
-                Dish dish = Db.lambdaQuery(Dish.class)
-                        .eq(Dish::getId, shoppingCart.getDishId())
-                        .one();
-
-                if (dish == null) {
-                    throw new BaseException("菜品不存在");
-                }
-
-                shoppingCart.setName(dish.getName());
-                shoppingCart.setImage(dish.getImage());
-                shoppingCart.setAmount(dish.getPrice());
-
-            } else if (shoppingCart.getSetmealId() != null) {
-
-                // 查询套餐信息
-                Setmeal setmeal = Db.lambdaQuery(Setmeal.class)
-                        .eq(Setmeal::getId, shoppingCart.getSetmealId())
-                        .one();
-
-                if (setmeal == null) {
-                    throw new BaseException("套餐不存在");
-                }
-
-                shoppingCart.setName(setmeal.getName());
-                shoppingCart.setImage(setmeal.getImage());
-                shoppingCart.setAmount(setmeal.getPrice());
-
-            } else {
-                throw new InvalidParameterException("菜品ID和套餐ID不能同时为空");
-            }
-
-            save(shoppingCart);
+            // 其他唯一键异常继续抛出，避免误判。
+            throw exception;
         }
     }
 
@@ -281,61 +309,50 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
     }
 
     /**
-     * 购物车中的商品数量减一
+     * 根据购物车行ID减一，不要求商品仍然可售。
      */
     @Override
-    public void subItemToCart(ShoppingCartDTO dto) {
-
+    public void subItemToCart(ShoppingCartSubDTO dto) {
         Long userId = ThreadLocalUtil.getCurrentId();
 
         if (userId == null) {
             throw new BaseException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        if (dto == null) {
-            throw new InvalidParameterException("购物车参数不能为空");
+        if (dto == null || dto.getCartId() == null || dto.getCartId() <= 0) {
+            throw new InvalidParameterException("购物车条目ID不合法");
         }
 
-        boolean hasDish = dto.getDishId() != null;
-        boolean hasSetmeal = dto.getSetmealId() != null;
+        // 必须同时限定条目ID和当前用户。
+        ShoppingCart cart = lambdaQuery()
+                .eq(ShoppingCart::getId, dto.getCartId())
+                .eq(ShoppingCart::getUserId, userId)
+                .one();
 
-        if (hasDish == hasSetmeal) {
-            throw new InvalidParameterException("菜品ID和套餐ID必须且只能填写一个");
-        }
-
-        LambdaQueryWrapper<ShoppingCart> wrapper =
-                new LambdaQueryWrapper<ShoppingCart>()
-                        .eq(ShoppingCart::getUserId, userId)
-                        .eq(hasDish, ShoppingCart::getDishId, dto.getDishId())
-                        .eq(hasSetmeal, ShoppingCart::getSetmealId, dto.getSetmealId());
-
-        if (hasDish) {
-            if (StrUtil.isNotBlank(dto.getDishFlavor())) {
-                wrapper.eq(ShoppingCart::getDishFlavor, dto.getDishFlavor());
-            } else {
-                wrapper.isNull(ShoppingCart::getDishFlavor);
-            }
-        }
-
-        ShoppingCart existedCart = getOne(wrapper);
-
-        if (existedCart == null) {
+        // 不存在或不属于本人，均不操作。
+        // 不向调用方泄露他人记录是否存在。
+        if (cart == null) {
             return;
         }
 
-        Integer number = existedCart.getNumber();
-        Integer version = existedCart.getVersion();
+        Integer number = cart.getNumber();
+        Integer version = cart.getVersion();
 
-        if (number == null || number < 1 || version == null || version < 0) {
-            throw new InvalidParameterException("购物车数据异常，请清空后重新加购");
+        if (number == null
+                || number < 1
+                || number > 99
+                || version == null
+                || version < 0
+                || version == Integer.MAX_VALUE) {
+            throw new InvalidParameterException("购物车数据异常，请移除该条目后重新加购");
         }
 
         boolean changed;
 
         if (number > 1) {
-            // 只有查询后没有被修改，才能执行本次减一。
+            // 查询后版本没有变化，才允许执行减一。
             changed = lambdaUpdate()
-                    .eq(ShoppingCart::getId, existedCart.getId())
+                    .eq(ShoppingCart::getId, cart.getId())
                     .eq(ShoppingCart::getUserId, userId)
                     .eq(ShoppingCart::getVersion, version)
                     .gt(ShoppingCart::getNumber, 1)
@@ -343,10 +360,9 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
                     .setSql("version = version + 1")
                     .update();
         } else {
-            // 数量为1时删除记录。
-            // 版本和数量条件防止把查询后被加购的记录直接删除。
+            // 查询后仍为同一版本、数量仍为1，才允许删除。
             changed = lambdaUpdate()
-                    .eq(ShoppingCart::getId, existedCart.getId())
+                    .eq(ShoppingCart::getId, cart.getId())
                     .eq(ShoppingCart::getUserId, userId)
                     .eq(ShoppingCart::getVersion, version)
                     .eq(ShoppingCart::getNumber, 1)
@@ -356,6 +372,33 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
         if (!changed) {
             throw new InvalidParameterException("购物车已变化，请刷新后重试");
         }
+    }
+
+    /**
+     * 主动移除本人购物车中的整条记录。
+     * 包括商品已删除、停售，以及数量或版本异常的记录。
+     */
+    @Override
+    public void removeItemFromCart(Long cartId) {
+        Long userId = ThreadLocalUtil.getCurrentId();
+
+        if (userId == null) {
+            throw new BaseException(MessageConstant.USER_NOT_LOGIN);
+        }
+
+        if (cartId == null || cartId <= 0) {
+            throw new InvalidParameterException("购物车条目ID不合法");
+        }
+
+        /*
+         * 用户明确要求移除整条记录，因此直接删除当前整条。
+         * 不依赖商品状态、数量、版本或 item_key。
+         * 已删除或不属于本人时，按无操作成功处理。
+         */
+        lambdaUpdate()
+                .eq(ShoppingCart::getId, cartId)
+                .eq(ShoppingCart::getUserId, userId)
+                .remove();
     }
 
     /**

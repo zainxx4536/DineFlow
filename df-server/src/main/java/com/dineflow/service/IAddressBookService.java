@@ -1,6 +1,8 @@
 package com.dineflow.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.dineflow.dto.AddressBookAddDTO;
+import com.dineflow.dto.AddressBookUpdateDTO;
 import com.dineflow.entity.AddressBook;
 
 import java.util.List;
@@ -17,11 +19,11 @@ public interface IAddressBookService extends IService<AddressBook> {
 
     List<AddressBook> getAddressInfo();
 
-    void addAddress(AddressBook addressBook);
+    void addAddress(AddressBookAddDTO dto);
 
     AddressBook getAddressById(Long id);
 
-    void modifyAddressById(AddressBook addressBook);
+    void modifyAddressById(AddressBookUpdateDTO dto);
 
     void setDefaultAddress(AddressBook addressBook);
 

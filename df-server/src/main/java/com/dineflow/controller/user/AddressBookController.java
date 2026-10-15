@@ -1,6 +1,8 @@
 package com.dineflow.controller.user;
 
 
+import com.dineflow.dto.AddressBookAddDTO;
+import com.dineflow.dto.AddressBookUpdateDTO;
 import com.dineflow.entity.AddressBook;
 import com.dineflow.result.Result;
 import com.dineflow.service.IAddressBookService;
@@ -45,9 +47,8 @@ public class AddressBookController {
      */
     @PostMapping
     @ApiOperation("新增地址")
-    public Result<String> addAddress(@RequestBody AddressBook addressBook) {
-        log.info("新增地址：{}", addressBook);
-        addressBookService.addAddress(addressBook);
+    public Result<String> addAddress(@RequestBody AddressBookAddDTO dto) {
+        addressBookService.addAddress(dto);
         return Result.success();
     }
 
@@ -63,13 +64,12 @@ public class AddressBookController {
     }
 
     /**
-     * 根据ID修改地址
+     * 根据ID和原版本编辑地址
      */
     @PutMapping
-    @ApiOperation("根据id修改地址")
-    public Result<String> modifyAddressById(@RequestBody AddressBook addressBook) {
-        log.info("根据ID修改地址: {}", addressBook);
-        addressBookService.modifyAddressById(addressBook);
+    @ApiOperation("根据ID和原版本修改地址")
+    public Result<String> modifyAddressById(@RequestBody AddressBookUpdateDTO dto) {
+        addressBookService.modifyAddressById(dto);
         return Result.success();
     }
 
