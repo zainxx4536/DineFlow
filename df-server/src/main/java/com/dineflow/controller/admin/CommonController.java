@@ -24,7 +24,7 @@ public class CommonController {
     @PostMapping("/upload")
     @ApiOperation("文件上传")
     public Result<String> fileUpload(@RequestParam("file") MultipartFile file) {
-        log.info("文件上传：{}", file == null ? null : file.getOriginalFilename());
+        log.info("文件上传");
         String url = aliOssUtil.upload(file);
         return Result.success(url);
     }

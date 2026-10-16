@@ -79,7 +79,7 @@ public class AddressBookController {
     @PutMapping("/default")
     @ApiOperation("设置默认地址")
     public Result<String> setDefaultAddress(@RequestBody AddressBook addressBook) {
-        log.info("设置默认地址：{}", addressBook);
+        log.info("设置默认地址");
         addressBookService.setDefaultAddress(addressBook);
         return Result.success();
     }

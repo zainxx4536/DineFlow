@@ -29,10 +29,9 @@ public class WebSocketServer {
      * 建立连接
      */
     @OnOpen
+    @SuppressWarnings("unused")
     public void onOpen(Session session, @PathParam("sid") String sid) {
-
-        log.info("WebSocket客户端建立连接，sid={}", sid);
-
+        log.info("WebSocket连接建立");
         // 如果同一个 sid 重复连接，新的连接会覆盖旧连接
         SESSION_MAP.put(sid, session);
     }
@@ -41,30 +40,31 @@ public class WebSocketServer {
      * 接收客户端消息
      */
     @OnMessage
-    public void onMessage(String message, @PathParam("sid") String sid) {
-
-        log.info("收到WebSocket客户端消息，sid={}，message={}", sid, message);
+    @SuppressWarnings("unused")
+    public void onMessage(String message) {
+        log.info("收到WebSocket消息，length={}", message == null ? 0 : message.length());
     }
 
     /**
      * 关闭连接
      */
     @OnClose
+    @SuppressWarnings("unused")
     public void onClose(@PathParam("sid") String sid) {
-
         SESSION_MAP.remove(sid);
-
-        log.info("WebSocket连接断开，sid={}", sid);
+        log.info("WebSocket连接断开");
     }
 
     /**
      * WebSocket异常
      */
     @OnError
-    public void onError(Session session, Throwable error, @PathParam("sid") String sid) {
-
-        log.error("WebSocket连接异常，sid={}", sid, error);
-
+    @SuppressWarnings("unused")
+    public void onError(Throwable error, @PathParam("sid") String sid) {
+        log.error(
+                "WebSocket连接异常，exceptionType={}",
+                error == null ? "unknown" : error.getClass().getSimpleName()
+        );
         SESSION_MAP.remove(sid);
     }
 
@@ -83,26 +83,8 @@ public class WebSocketServer {
             try {
                 session.getBasicRemote().sendText(message);
             } catch (IOException e) {
-                log.error("WebSocket消息发送失败，sid={}", sid, e);
+                log.error("WebSocket消息发送失败，exceptionType={}", e.getClass().getSimpleName());
             }
         });
-    }
-
-    /**
-     * 向单个客户端发送消息
-     */
-    public void sendToClient(String sid, String message) {
-
-        Session session = SESSION_MAP.get(sid);
-
-        if (session == null || !session.isOpen()) {
-            return;
-        }
-
-        try {
-            session.getBasicRemote().sendText(message);
-        } catch (IOException e) {
-            log.error("WebSocket消息发送失败，sid={}", sid, e);
-        }
     }
 }

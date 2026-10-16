@@ -31,7 +31,7 @@ public class OrderController {
     @GetMapping("/conditionSearch")
     @ApiOperation("订单搜索")
     public Result<PageResult<OrderConditionSearchVO>> orderConditionSearch(OrdersPageQueryDTO ordersPageQueryDTO) {
-        log.info("订单搜索：{}", ordersPageQueryDTO);
+        log.info("订单搜索");
         PageResult<OrderConditionSearchVO> pageResult = ordersService.orderConditionSearch(ordersPageQueryDTO);
         return Result.success(pageResult);
     }
@@ -64,7 +64,7 @@ public class OrderController {
     @PutMapping("/cancel")
     @ApiOperation("取消订单")
     public Result<String> adminCancelOrder(@RequestBody OrdersCancelDTO ordersCancelDTO) {
-        log.info("取消订单：{}", ordersCancelDTO);
+        log.info("取消订单");
         ordersService.adminCancelOrder(ordersCancelDTO);
         return Result.success();
     }
@@ -75,7 +75,7 @@ public class OrderController {
     @PutMapping("/rejection")
     @ApiOperation("拒单")
     public Result<String> rejectionOrder(@RequestBody OrdersRejectionDTO ordersRejectionDTO) {
-        log.info("拒单：{}", ordersRejectionDTO);
+        log.info("管理员拒单");
         ordersService.rejectionOrder(ordersRejectionDTO);
         return Result.success();
     }
@@ -86,7 +86,7 @@ public class OrderController {
     @PutMapping("/confirm")
     @ApiOperation("接单")
     public Result<String> confirmOrder(@RequestBody OrdersConfirmDTO ordersConfirmDTO) {
-        log.info("接单：{}", ordersConfirmDTO);
+        log.info("管理员接单");
         ordersService.confirmOrder(ordersConfirmDTO);
         return Result.success();
     }

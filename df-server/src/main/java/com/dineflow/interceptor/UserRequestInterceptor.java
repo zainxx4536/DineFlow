@@ -1,14 +1,14 @@
 package com.dineflow.interceptor;
 
-
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.http.HttpStatus;
 import com.dineflow.constant.JwtClaimsConstant;
-import com.dineflow.constant.MessageConstant;
 import com.dineflow.properties.JwtProperties;
+import com.dineflow.result.Result;
 import com.dineflow.utils.JwtUtil;
 import com.dineflow.utils.ThreadLocalUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
@@ -19,62 +19,85 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 
-/**
- * 用户端请求拦截器，用来校验登录状态
- */
 @Component
 @Slf4j
 @RequiredArgsConstructor
 public class UserRequestInterceptor implements HandlerInterceptor {
 
     private final JwtProperties jwtProperties;
+    private final ObjectMapper objectMapper;
 
     @Override
-    public boolean preHandle(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) {
+    public boolean preHandle(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull Object handler) throws IOException {
 
-        // 非 Controller 请求直接放行
+        // 先清理当前线程可能残留的身份。
+        ThreadLocalUtil.removeCurrentId();
+
+        // 沿用当前对非 Controller 请求的处理。
         if (!(handler instanceof HandlerMethod)) {
             return true;
         }
 
-        // 获取用户 Token
-        String token = request.getHeader(
-                jwtProperties.getUserTokenName()
-        );
+        String token = request.getHeader(jwtProperties.getUserTokenName());
 
         if (StrUtil.isBlank(token)) {
-            log.info(MessageConstant.USER_NOT_LOGIN);
-            response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
-            return false;
+            return unauthorized(response);
         }
 
         try {
-            // 注意：这里必须使用用户端密钥
-            Claims claims = JwtUtil.parseJWT(
-                    jwtProperties.getUserSecretKey(),
-                    token
-            );
+            Claims claims = JwtUtil.parseJWT(jwtProperties.getUserSecretKey(), token);
 
-            Long userId = Long.valueOf(
-                    claims.get(JwtClaimsConstant.USER_ID).toString()
-            );
+            Object value = claims.get(JwtClaimsConstant.USER_ID);
 
-            ThreadLocalUtil.setCurrentId(userId);
+            if (value == null) {
+                return unauthorized(response);
+            }
 
-            log.info("用户令牌校验成功，当前用户ID：{}", userId);
+            Long currentId = Long.valueOf(value.toString());
+
+            if (currentId <= 0) {
+                return unauthorized(response);
+            }
+
+            // 所有认证检查通过后，才设置本次身份。
+            ThreadLocalUtil.setCurrentId(currentId);
+
+            log.debug("身份校验通过，id={}", currentId);
 
             return true;
 
-        } catch (Exception e) {
-            log.warn("用户令牌解析失败");
-            response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
-            return false;
+        } catch (JwtException | IllegalArgumentException exception) {
+            // 不记录 Token 或异常原文。
+            return unauthorized(response);
         }
     }
 
+    private boolean unauthorized(HttpServletResponse response) throws IOException {
+
+        ThreadLocalUtil.removeCurrentId();
+
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+
+        objectMapper.writeValue(
+                response.getWriter(),
+                Result.error("用户未登录或登录已失效，请重新登录")
+        );
+
+        return false;
+    }
+
     @Override
-    public void afterCompletion(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler, @Nullable Exception ex) {
+    public void afterCompletion(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull Object handler,
+            @Nullable Exception exception) {
 
         ThreadLocalUtil.removeCurrentId();
     }

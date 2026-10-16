@@ -59,6 +59,7 @@ public class ShoppingCartController {
     @PostMapping("/sub")
     @ApiOperation("购物车指定条目数量减一")
     public Result<String> subItemToCart(@RequestBody ShoppingCartSubDTO dto) {
+        log.info("向购物车添加菜品或套餐");
         shoppingCartService.subItemToCart(dto);
         return Result.success();
     }

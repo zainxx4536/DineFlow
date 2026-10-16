@@ -70,7 +70,7 @@ public class OrdersController {
     @GetMapping("/historyOrders")
     @ApiOperation("历史订单查询")
     public Result<PageResult<HistoryOrdersQueryVO>> historyOrdersQuery(OrdersPageQueryDTO ordersPageQueryDTO) {
-        log.info("历史订单分页查询：{}", ordersPageQueryDTO);
+        log.info("历史订单分页查询");
         PageResult<HistoryOrdersQueryVO> pageResult = ordersService.historyOrdersQuery(ordersPageQueryDTO);
         return Result.success(pageResult);
     }

@@ -7,7 +7,6 @@ import com.aliyun.sdk.service.oss2.credentials.EnvironmentVariableCredentialsPro
 import com.aliyun.sdk.service.oss2.models.PutObjectRequest;
 import com.aliyun.sdk.service.oss2.models.PutObjectResult;
 import com.aliyun.sdk.service.oss2.transport.BinaryData;
-import com.dineflow.constant.MessageConstant;
 import com.dineflow.exception.UploadFileFailedException;
 import com.dineflow.exception.UploadFileIsNullException;
 import com.dineflow.properties.AliOssProperties;
@@ -48,22 +47,19 @@ public class AliOssUtil {
         String suffix = getFileSuffix(originalFilename);
 
         // 生成 OSS 对象名称
-        String objectName =
-                "images/"
-                        + UUID.randomUUID()
-                        .toString()
-                        .replace("-", "")
-                        + suffix;
+        String objectName = "images/"
+                + UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                + suffix;
 
         // 从环境变量读取 AccessKey
-        CredentialsProvider credentialsProvider =
-                new EnvironmentVariableCredentialsProvider();
+        CredentialsProvider credentialsProvider = new EnvironmentVariableCredentialsProvider();
 
         // 创建 OSS Client
-        OSSClientBuilder clientBuilder =
-                OSSClient.newBuilder()
-                        .credentialsProvider(credentialsProvider)
-                        .region(aliOssProperties.getRegion());
+        OSSClientBuilder clientBuilder = OSSClient.newBuilder()
+                .credentialsProvider(credentialsProvider)
+                .region(aliOssProperties.getRegion());
 
         String endpoint = aliOssProperties.getEndpoint();
 
@@ -77,30 +73,20 @@ public class AliOssUtil {
         try (OSSClient client = clientBuilder.build();
              InputStream inputStream = file.getInputStream()) {
 
-            PutObjectRequest request =
-                    PutObjectRequest.newBuilder()
-                            .bucket(aliOssProperties.getBucketName())
-                            .key(objectName)
-                            .body(BinaryData.fromStream(inputStream))
-                            .build();
+            PutObjectRequest request = PutObjectRequest.newBuilder()
+                    .bucket(aliOssProperties.getBucketName())
+                    .key(objectName)
+                    .body(BinaryData.fromStream(inputStream))
+                    .build();
 
-            PutObjectResult result =
-                    client.putObject(request);
+            PutObjectResult result = client.putObject(request);
 
-            log.info(
-                    "OSS 文件上传成功，objectName：{}，requestId：{}",
-                    objectName,
-                    result.requestId()
-            );
+            log.info("OSS文件上传成功，requestId={}", result.requestId());
 
             return buildFileUrl(objectName);
 
         } catch (Exception e) {
-            log.error(
-                    MessageConstant.UPLOAD_FAILED + "，文件名：{}",
-                    originalFilename,
-                    e
-            );
+            log.error("OSS文件上传失败，exceptionType={}", e.getClass().getSimpleName());
             throw new UploadFileFailedException("文件上传失败");
         }
     }
@@ -135,13 +121,11 @@ public class AliOssUtil {
      */
     private String buildFileUrl(String objectName) {
 
-        String endpoint =
-                aliOssProperties.getEndpoint();
+        String endpoint = aliOssProperties.getEndpoint();
 
-        String endpointHost =
-                endpoint
-                        .replace("https://", "")
-                        .replace("http://", "");
+        String endpointHost = endpoint
+                .replace("https://", "")
+                .replace("http://", "");
 
         return "https://"
                 + aliOssProperties.getBucketName()

@@ -25,7 +25,7 @@ public class UserController {
     @PostMapping("/login")
     @ApiOperation("用户登录接口")
     public Result<UserLoginVO> userLogin(@RequestBody UserLoginDTO userLoginDTO) {
-        log.info("用户登录：{}", userLoginDTO);
+        log.info("用户登录");
         UserLoginVO userLoginVO = userService.userLogin(userLoginDTO);
         return Result.success(userLoginVO);
     }

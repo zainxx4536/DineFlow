@@ -63,13 +63,19 @@ public class PayNotifyController {
             return ResponseEntity.ok().build();
         } catch (ValidationException e) {
             // 回调验签失败
-            log.warn("微信支付回调验签失败", e);
+            log.warn(
+                    "微信支付回调验签失败，exceptionType={}",
+                    e.getClass().getSimpleName()
+            );
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
                     .build();
         } catch (Exception e) {
             // 数据库等业务处理失败
-            log.error("微信支付回调处理失败", e);
+            log.error(
+                    "微信支付回调处理失败，exceptionType={}",
+                    e.getClass().getSimpleName()
+            );
             return ResponseEntity
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .build();
@@ -98,7 +104,7 @@ public class PayNotifyController {
                     body
             );
 
-            log.info("收到微信退款回调：{}", notification);
+            log.info("收到已验签的微信退款回调");
 
             // 处理退款结果
             ordersService.handleRefundNotify(notification);
@@ -106,12 +112,18 @@ public class PayNotifyController {
             return ResponseEntity.ok().build();
 
         } catch (ValidationException e) {
-            log.error("微信退款回调验签失败", e);
+            log.warn(
+                    "微信退款回调验签失败，exceptionType={}",
+                    e.getClass().getSimpleName()
+            );
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
                     .build();
         } catch (Exception e) {
-            log.error("微信退款回调处理失败", e);
+            log.error(
+                    "微信退款回调处理失败，exceptionType={}",
+                    e.getClass().getSimpleName()
+            );
             return ResponseEntity
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .build();
