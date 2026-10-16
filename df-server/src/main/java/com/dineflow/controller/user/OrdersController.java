@@ -43,12 +43,12 @@ public class OrdersController {
     }
 
     /**
-     * 用户下单接口
+     * 提交订单
      */
     @PostMapping("/submit")
     @ApiOperation("提交订单")
     public Result<OrderSubmitVO> submitOrder(@RequestBody OrdersSubmitDTO ordersSubmitDTO) {
-        log.info("提交订单：{}", ordersSubmitDTO);
+        log.info("提交订单");
         OrderSubmitVO orderSubmitVO = ordersService.submitOrder(ordersSubmitDTO);
         return Result.success(orderSubmitVO);
     }
@@ -102,7 +102,7 @@ public class OrdersController {
      */
     @PostMapping("/repetition/{id}")
     @ApiOperation("再来一单")
-    public Result<String> oneMoreOrder(@PathVariable Long id){
+    public Result<String> oneMoreOrder(@PathVariable Long id) {
         log.info("再来一单：{}", id);
         ordersService.oneMoreOrder(id);
         return Result.success();

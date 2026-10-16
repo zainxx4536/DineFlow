@@ -95,8 +95,10 @@ public class Orders implements Serializable {
     private int tablewareNumber;
     //餐具数量状态  1按餐量提供  0选择具体数量
     private Integer tablewareStatus;
-    /**
-     * 微信支付交易号
-     */
+    //微信支付交易号
     private String transactionId;
+    // 同一次下单的稳定请求号
+    private String requestId;
+    // 服务端计算的规范化请求内容摘要
+    private String requestHash;
 }

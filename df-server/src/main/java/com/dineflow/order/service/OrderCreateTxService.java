@@ -120,12 +120,14 @@ public class OrderCreateTxService {
      */
     @Transactional(
             rollbackFor = Exception.class,
-            isolation = Isolation.REPEATABLE_READ)
+            isolation = Isolation.REPEATABLE_READ
+    )
     public OrderSubmitVO createOrder(
             Long userId,
             OrdersSubmitDTO dto,
             AddressBook checkedAddress,
-            String orderNumber) {
+            String orderNumber,
+            String requestHash) {
 
         if (userId == null || !Objects.equals(userId, ThreadLocalUtil.getCurrentId())) {
             throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
@@ -133,54 +135,64 @@ public class OrderCreateTxService {
 
         validateSubmitParams(dto);
 
-        // 1. 先锁定本人整车。
-        // RR下的索引范围锁同时保护新增条目所在的范围。
+        if (dto.getRequestId() == null
+                || requestHash == null
+                || !requestHash.matches("[0-9a-f]{64}")) {
+            throw new OrderBusinessException("缺少有效的下单请求标识");
+        }
+
+        // 1. 先锁定本人整车，保留RR索引范围锁。
         List<ShoppingCart> lockedCarts = shoppingCartMapper.lockOwnedCart(userId);
 
         if (lockedCarts.isEmpty()) {
             throw new OrderBusinessException("购物车已变化，请重新预览并确认");
         }
 
-        // 2. 再锁定本人收货地址，读取当前数据。
+        // 2. 再锁定本人收货地址。
         AddressBook currentAddress = addressBookMapper.lockOwnedAddress(dto.getAddressBookId(), userId);
 
-        // 3. 必须仍是用户确认、地图检查过的地址。
         if (checkedAddress == null
                 || currentAddress == null
-                || !Objects.equals(dto.getAddressVersion(), currentAddress.getVersion())
+                || !Objects.equals(
+                dto.getAddressVersion(),
+                currentAddress.getVersion()
+        )
                 || !sameAddress(checkedAddress, currentAddress)) {
             throw new AddressBookBusinessException("收货地址已变化或被删除，请重新加载并确认");
         }
 
-        // 4. 整车已锁住，再查询商品信息并重新计算报价。
+        // 3. 锁定后重新报价并比较用户确认内容。
         OrderPreviewVO latestQuote = calculateQuote();
 
         checkConfirmedQuote(dto, latestQuote);
 
-        // 获取数据库锁也可能等待，建单前再检查预约时间。
+        // 获取锁可能等待，写单前再次检查预约时间。
         validateSubmitParams(dto);
 
-        if (Objects.equals(dto.getTablewareStatus(), 1)) {
-            dto.setTablewareNumber(latestQuote.getTotalNumber());
-        }
-
-        // 5. 创建订单。
+        // 4. 创建订单。
         Orders order = BeanUtil.copyProperties(dto, Orders.class);
+
+        order.setRequestId(dto.getRequestId());
+        order.setRequestHash(requestHash);
+
+        // 自动餐具只写入订单，不修改用于计算摘要的DTO。
+        order.setTablewareNumber(
+                Objects.equals(dto.getTablewareStatus(), 1)
+                        ? latestQuote.getTotalNumber()
+                        : dto.getTablewareNumber()
+        );
 
         order.setUserId(userId);
         order.setAddressBookId(checkedAddress.getId());
-
         order.setNumber(orderNumber);
         order.setStatus(Orders.PENDING_PAYMENT);
         order.setPayStatus(Orders.UN_PAID);
-        order.setOrderTime(LocalDateTime.now());
+        order.setOrderTime(LocalDateTime.now().withNano(0));
 
-        // 保存地图检查过、且在事务内复核一致的地址。
         order.setPhone(checkedAddress.getPhone());
         order.setConsignee(checkedAddress.getConsignee());
         order.setAddress(buildWholeAddress(checkedAddress));
 
-        // 成交金额以本次后端复核报价为准。
         order.setAmount(latestQuote.getPayableAmount());
         order.setPackAmount(latestQuote.getPackAmount());
 
@@ -188,7 +200,7 @@ public class OrderCreateTxService {
             throw new OrderBusinessException("订单创建失败");
         }
 
-        // 6. 保存商品成交快照。
+        // 5. 保存本次成交快照。
         for (ShoppingCartItemVO item : latestQuote.getItems()) {
 
             OrderDetail detail = new OrderDetail();
@@ -196,13 +208,10 @@ public class OrderCreateTxService {
             detail.setOrderId(order.getId());
             detail.setDishId(item.getDishId());
             detail.setSetmealId(item.getSetmealId());
-
             detail.setName(item.getName());
             detail.setImage(item.getImage());
             detail.setDishFlavor(item.getDishFlavor());
             detail.setNumber(item.getNumber());
-
-            // 明细amount保存成交单价。
             detail.setAmount(item.getCurrentPrice());
 
             if (orderDetailMapper.insert(detail) != 1) {
@@ -210,14 +219,15 @@ public class OrderCreateTxService {
             }
         }
 
-        // 7. 精确消费本次锁定并成交的购物车条目。
+        // 6. 精确消费本次成交的购物车行。
         for (ShoppingCart row : lockedCarts) {
 
             int deleted = shoppingCartMapper.deleteOwnedCartAtVersion(
                     row.getId(),
                     userId,
                     row.getVersion(),
-                    row.getNumber());
+                    row.getNumber()
+            );
 
             if (deleted != 1) {
                 throw new OrderBusinessException("购物车已变化，请重新预览并确认");
@@ -258,9 +268,7 @@ public class OrderCreateTxService {
      * 不比较isDefault：
      * 只切换默认地址不会改变本次收件内容。
      */
-    private boolean sameAddress(
-            AddressBook checked,
-            AddressBook current) {
+    private boolean sameAddress(AddressBook checked, AddressBook current) {
 
         return Objects.equals(checked.getId(), current.getId())
                 && Objects.equals(checked.getUserId(), current.getUserId())

@@ -26,7 +26,7 @@ public interface OrdersMapper extends BaseMapper<Orders> {
             @Param("dto") OrdersPageQueryDTO ordersPageQueryDTO
     );
 
-    Page<OrderConditionSearchVO> orderConditionSearch(Page<OrderConditionSearchVO> page, OrdersPageQueryDTO dto);
+    Page<OrderConditionSearchVO> orderConditionSearch(@Param("page") Page<OrderConditionSearchVO> page, @Param("dto") OrdersPageQueryDTO dto);
 
     OrderStatisticsVO orderStatistics();
 
@@ -39,4 +39,6 @@ public interface OrdersMapper extends BaseMapper<Orders> {
     BusinessOrderDataVO getBusinessOrderData(LocalDateTime beginTime, LocalDateTime endTime);
 
     OrderOverViewVO getOrderOverView(LocalDateTime beginTime, LocalDateTime endTime);
+
+    Orders findByUserAndRequestId(@Param("userId") Long userId, @Param("requestId") String requestId);
 }

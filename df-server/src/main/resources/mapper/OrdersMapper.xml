@@ -97,4 +97,13 @@
         where order_time >= #{beginTime}
           and order_time &lt; #{endTime}
     </select>
+
+    <select id="findByUserAndRequestId" resultType="com.dineflow.entity.Orders"
+            useCache="false"
+            flushCache="true">
+        SELECT *
+        FROM orders
+        WHERE user_id = #{userId}
+          AND request_id = #{requestId}
+    </select>
 </mapper>

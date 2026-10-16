@@ -12,10 +12,13 @@ import com.dineflow.constant.RedisKeyConstant;
 import com.dineflow.dto.*;
 import com.dineflow.entity.*;
 import com.dineflow.exception.AddressBookBusinessException;
+import com.dineflow.exception.BaseException;
 import com.dineflow.exception.OrderBusinessException;
+import com.dineflow.exception.OrderSubmitUnknownException;
 import com.dineflow.mapper.OrdersMapper;
 import com.dineflow.model.Coordinate;
 import com.dineflow.order.service.OrderCreateTxService;
+import com.dineflow.order.support.OrderRequestNormalizer;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
 import com.dineflow.service.IAddressBookService;
@@ -34,12 +37,18 @@ import com.wechat.pay.java.service.refund.model.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -78,6 +87,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
     private final OrderCreateTxService orderCreateTxService;
 
+    private final OrderRequestNormalizer orderRequestNormalizer;
+
 
     /**
      * C端-订单结算预览：检查营业状态，返回本次商品报价。
@@ -115,7 +126,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * C端-用户提交订单
      */
     @Override
-    public OrderSubmitVO submitOrder(OrdersSubmitDTO dto) {
+    public OrderSubmitVO submitOrder(OrdersSubmitDTO source) {
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
@@ -123,59 +134,233 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        orderCreateTxService.validateSubmitParams(dto);
+        // 1. 静态检查、规范化及摘要计算，不读取当前购物车和地址。
+        OrdersSubmitDTO dto = orderRequestNormalizer.normalize(source);
 
-        if (dto.getAddressBookId() == null || dto.getAddressBookId() <= 0) {
-            throw new AddressBookBusinessException("请选择有效的收货地址");
+        String requestHash = orderRequestNormalizer.calculateHash(
+                userId,
+                dto
+        );
+
+        // 2. 已创建的原订单优先返回。
+        OrderSubmitVO existing = findReplayOrNull(
+                userId,
+                dto.getRequestId(),
+                requestHash
+        );
+
+        if (existing != null) {
+            return existing;
         }
 
-        if (dto.getAddressVersion() == null || dto.getAddressVersion() < 0) {
-            throw new AddressBookBusinessException("缺少有效的地址确认信息");
-        }
-
-        // 1. 查询本人地址，保留地图实际使用的对象。
-        AddressBook checkedAddress = addressBookService.getAddressById(dto.getAddressBookId());
-
-        if (checkedAddress == null) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
-        }
-
-        if (!Objects.equals(dto.getAddressVersion(), checkedAddress.getVersion())) {
-            throw new AddressBookBusinessException("收货地址已变化，请重新加载并确认");
-        }
-
-        String wholeAddress = orderCreateTxService.buildWholeAddress(checkedAddress);
-
-        // 2. 先拒绝已经失效的报价，减少无效地图请求。
-        // 这次检查不能替代后面的事务内复核。
-        orderCreateTxService.checkConfirmedQuote(dto, previewOrder());
-
-        // 3. 地图校验位于订单写事务之外。
-        Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
-
-        double distance = baiduMapClient.getDrivingDistance(coordinate);
-
-        if (!Double.isFinite(distance) || distance <= 0) {
-            throw new OrderBusinessException("配送距离数据异常");
-        }
-
-        if (distance > DELIVERY_RANGE_METERS) {
-            throw new AddressBookBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
-        }
-
-        // 4. 地图调用后再次检查营业状态。
-        checkShopOpen();
-
-        // Redis取号也位于数据库事务之外。
-        String orderNumber = String.valueOf(redisIdWorker.nextId("order"));
+        boolean creationAttempted = false;
 
         try {
-            // 5. 通过独立Spring Bean进入数据库短事务。
-            return orderCreateTxService.createOrder(userId, dto, checkedAddress, orderNumber);
-        } catch (org.springframework.dao.PessimisticLockingFailureException e) {
-            // 到达这里时，事务代理已经结束并回滚create中的事务。
-            throw new OrderBusinessException("购物车操作冲突，请重新预览并确认");
+            // 3. 首次创建才检查当前业务条件。
+            orderCreateTxService.validateSubmitParams(dto);
+
+            AddressBook checkedAddress = addressBookService.getAddressById(
+                    dto.getAddressBookId()
+            );
+
+            if (checkedAddress == null) {
+                throw new AddressBookBusinessException(
+                        MessageConstant.ADDRESS_BOOK_IS_NULL
+                );
+            }
+
+            if (!Objects.equals(
+                    dto.getAddressVersion(),
+                    checkedAddress.getVersion()
+            )) {
+                throw new AddressBookBusinessException(
+                        "收货地址已变化，请重新加载并确认"
+                );
+            }
+
+            String wholeAddress =
+                    orderCreateTxService.buildWholeAddress(checkedAddress);
+
+            // 提前拒绝已失效的报价，但事务内仍须再复核。
+            orderCreateTxService.checkConfirmedQuote(dto, previewOrder());
+
+            // 4. 地图请求仍在数据库事务外。
+            Coordinate coordinate =
+                    baiduMapClient.getCoordinate(wholeAddress);
+
+            double distance =
+                    baiduMapClient.getDrivingDistance(coordinate);
+
+            if (!Double.isFinite(distance) || distance <= 0) {
+                throw new OrderBusinessException("配送距离数据异常");
+            }
+
+            if (distance > DELIVERY_RANGE_METERS) {
+                throw new AddressBookBusinessException(
+                        MessageConstant.DISTANCE_MORE_THAN_5KM
+                );
+            }
+
+            checkShopOpen();
+
+            // Redis取号仍在数据库事务外。
+            String orderNumber =
+                    String.valueOf(redisIdWorker.nextId("order"));
+
+            // 5. 经独立Spring Bean进入创建事务。
+            creationAttempted = true;
+
+            return orderCreateTxService.createOrder(
+                    userId,
+                    dto,
+                    checkedAddress,
+                    orderNumber,
+                    requestHash
+            );
+
+        } catch (RuntimeException failure) {
+
+            // 6. 创建事务代理已退出。
+            // 动态校验失败也可能与另一个同号请求成功创建交错。
+            OrderSubmitVO committed = findReplayOrNull(
+                    userId,
+                    dto.getRequestId(),
+                    requestHash
+            );
+
+            if (committed != null) {
+                return committed;
+            }
+
+            // 不记录完整DTO、SQL原文、备注和收件信息。
+            log.warn(
+                    "下单未取得成功结果，userId={}，requestId={}，failureType={}",
+                    userId,
+                    dto.getRequestId(),
+                    failure.getClass().getSimpleName()
+            );
+
+            if (isUniqueConstraint(failure, "uk_orders_user_request")) {
+                // 请求号冲突但暂时未查到结果，保留原号继续确认。
+                throw new OrderSubmitUnknownException(dto.getRequestId());
+            }
+
+            if (isUniqueConstraint(failure, "uk_orders_number")) {
+                throw new OrderBusinessException(
+                        "订单号冲突，请使用原请求号稍后重试"
+                );
+            }
+
+            if (failure instanceof PessimisticLockingFailureException) {
+                throw new OrderBusinessException(
+                        "购物车操作冲突，请使用原请求号重试"
+                );
+            }
+
+            if (failure instanceof BaseException businessFailure) {
+                throw businessFailure;
+            }
+
+            if (failure instanceof DataIntegrityViolationException) {
+                throw new OrderBusinessException("订单数据保存失败");
+            }
+
+            if (creationAttempted
+                    && (failure instanceof DataAccessException
+                    || failure instanceof TransactionException)) {
+                // 包括COMMIT附近的连接异常，不能直接认定没有创建订单。
+                throw new OrderSubmitUnknownException(dto.getRequestId());
+            }
+
+            throw new OrderBusinessException(
+                    "订单提交失败，请使用原请求号稍后重试"
+            );
         }
+    }
+
+    /**
+     * 查询本人同请求号的已提交订单。
+     * 本方法及外层submitOrder均不开启事务。
+     */
+    private OrderSubmitVO findReplayOrNull(
+            Long userId,
+            String requestId,
+            String requestHash) {
+
+        Orders order;
+
+        try {
+            order = ordersMapper.findByUserAndRequestId(
+                    userId,
+                    requestId
+            );
+        } catch (DataAccessException failure) {
+
+            log.warn(
+                    "原订单查询暂不可用，userId={}，requestId={}，failureType={}",
+                    userId,
+                    requestId,
+                    failure.getClass().getSimpleName()
+            );
+
+            throw new OrderSubmitUnknownException(requestId);
+        }
+
+        if (order == null) {
+            return null;
+        }
+
+        if (order.getRequestId() == null
+                || order.getRequestId().startsWith("legacy-")
+                || order.getRequestHash() == null
+                || !order.getRequestHash().matches("[0-9a-f]{64}")) {
+            throw new OrderBusinessException(
+                    "该订单不能通过此请求重放"
+            );
+        }
+
+        if (!Objects.equals(requestHash, order.getRequestHash())) {
+            throw new OrderBusinessException(
+                    "请求号已用于其他下单内容，请勿复用"
+            );
+        }
+
+        return OrderSubmitVO.builder()
+                .id(order.getId())
+                .orderNumber(order.getNumber())
+                .orderAmount(order.getAmount())
+                .orderTime(order.getOrderTime())
+                .build();
+    }
+
+    /**
+     * 精确识别MySQL 1062及指定约束。
+     * 不把所有DuplicateKeyException都当成请求号冲突。
+     */
+    private boolean isUniqueConstraint(
+            Throwable failure,
+            String constraintName) {
+
+        Pattern pattern = Pattern.compile(
+                "for key ['`](?:[^'`]+\\.)?"
+                        + Pattern.quote(constraintName)
+                        + "['`]",
+                Pattern.CASE_INSENSITIVE
+        );
+
+        for (Throwable cause = failure;
+             cause != null;
+             cause = cause.getCause()) {
+
+            if (cause instanceof SQLException sql
+                    && sql.getErrorCode() == 1062
+                    && sql.getMessage() != null
+                    && pattern.matcher(sql.getMessage()).find()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
