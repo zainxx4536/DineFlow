@@ -68,6 +68,7 @@ public class OrderProcessingTask {
 
         boolean updated = ordersService.lambdaUpdate()
                 .eq(Orders::getStatus, Orders.DELIVERY_IN_PROGRESS)
+                .eq(Orders::getPayStatus, Orders.PAID)
                 .lt(Orders::getEstimatedDeliveryTime, timeout)
                 .set(Orders::getStatus, Orders.COMPLETED)
                 .set(Orders::getDeliveryTime, now)

@@ -5,7 +5,9 @@ import com.dineflow.dto.OrdersPageQueryDTO;
 import com.dineflow.entity.Orders;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.dineflow.vo.*;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -41,4 +43,13 @@ public interface OrdersMapper extends BaseMapper<Orders> {
     OrderOverViewVO getOrderOverView(LocalDateTime beginTime, LocalDateTime endTime);
 
     Orders findByUserAndRequestId(@Param("userId") Long userId, @Param("requestId") String requestId);
+
+    /**
+     * 在支付结果处理事务中锁定并查询订单。
+     * 先锁定，再判断当前订单状态，
+     * 避免重复回调和取消操作之间出现检查、更新不一致。
+     */
+    @Select("SELECT * FROM orders WHERE number = #{number} FOR UPDATE")
+    @Options(useCache = false, flushCache = Options.FlushCachePolicy.TRUE)
+    Orders selectByNumberForUpdate(@Param("number") String number);
 }

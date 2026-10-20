@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -16,8 +17,11 @@ import com.dineflow.exception.BaseException;
 import com.dineflow.exception.OrderBusinessException;
 import com.dineflow.exception.OrderSubmitUnknownException;
 import com.dineflow.mapper.OrdersMapper;
+import com.dineflow.mapper.PaymentRecordMapper;
 import com.dineflow.model.Coordinate;
 import com.dineflow.order.service.OrderCreateTxService;
+import com.dineflow.order.service.RefundRecordTxService;
+import com.dineflow.order.service.RefundRecoveryService;
 import com.dineflow.order.support.OrderRequestNormalizer;
 import com.dineflow.properties.WeChatProperties;
 import com.dineflow.result.PageResult;
@@ -32,8 +36,8 @@ import com.dineflow.vo.*;
 import com.dineflow.websocket.WebSocketServer;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.refund.model.Refund;
 import com.wechat.pay.java.service.refund.model.RefundNotification;
-import com.wechat.pay.java.service.refund.model.Status;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -45,8 +49,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -89,6 +96,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
     private final OrderRequestNormalizer orderRequestNormalizer;
 
+    private final PaymentRecordMapper paymentRecordMapper;
+
+    private final RefundRecordTxService refundRecordTxService;
+
+    private final RefundRecoveryService refundRecoveryService;
+
 
     /**
      * C端-订单结算预览：检查营业状态，返回本次商品报价。
@@ -110,8 +123,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      */
     private void checkShopOpen() {
 
-        String status = redisTemplate.opsForValue()
-                .get(RedisKeyConstant.SHOP_STATUS);
+        String status = redisTemplate.opsForValue().get(RedisKeyConstant.SHOP_STATUS);
 
         if (!"0".equals(status) && !"1".equals(status)) {
             throw new OrderBusinessException(MessageConstant.SHOP_STATUS_ABNORMAL);
@@ -137,17 +149,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 1. 静态检查、规范化及摘要计算，不读取当前购物车和地址。
         OrdersSubmitDTO dto = orderRequestNormalizer.normalize(source);
 
-        String requestHash = orderRequestNormalizer.calculateHash(
-                userId,
-                dto
-        );
+        String requestHash = orderRequestNormalizer.calculateHash(userId, dto);
 
         // 2. 已创建的原订单优先返回。
-        OrderSubmitVO existing = findReplayOrNull(
-                userId,
-                dto.getRequestId(),
-                requestHash
-        );
+        OrderSubmitVO existing = findReplayOrNull(userId, dto.getRequestId(), requestHash);
 
         if (existing != null) {
             return existing;
@@ -159,86 +164,59 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             // 3. 首次创建才检查当前业务条件。
             orderCreateTxService.validateSubmitParams(dto);
 
-            AddressBook checkedAddress = addressBookService.getAddressById(
-                    dto.getAddressBookId()
-            );
+            AddressBook checkedAddress = addressBookService.getAddressById(dto.getAddressBookId());
 
             if (checkedAddress == null) {
-                throw new AddressBookBusinessException(
-                        MessageConstant.ADDRESS_BOOK_IS_NULL
-                );
+                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
             }
 
-            if (!Objects.equals(
-                    dto.getAddressVersion(),
-                    checkedAddress.getVersion()
-            )) {
-                throw new AddressBookBusinessException(
-                        "收货地址已变化，请重新加载并确认"
-                );
+            if (!Objects.equals(dto.getAddressVersion(), checkedAddress.getVersion())) {
+                throw new AddressBookBusinessException("收货地址已变化，请重新加载并确认");
             }
 
-            String wholeAddress =
-                    orderCreateTxService.buildWholeAddress(checkedAddress);
+            String wholeAddress = orderCreateTxService.buildWholeAddress(checkedAddress);
 
             // 提前拒绝已失效的报价，但事务内仍须再复核。
             orderCreateTxService.checkConfirmedQuote(dto, previewOrder());
 
             // 4. 地图请求仍在数据库事务外。
-            Coordinate coordinate =
-                    baiduMapClient.getCoordinate(wholeAddress);
+            Coordinate coordinate = baiduMapClient.getCoordinate(wholeAddress);
 
-            double distance =
-                    baiduMapClient.getDrivingDistance(coordinate);
+            double distance = baiduMapClient.getDrivingDistance(coordinate);
 
             if (!Double.isFinite(distance) || distance <= 0) {
                 throw new OrderBusinessException("配送距离数据异常");
             }
 
             if (distance > DELIVERY_RANGE_METERS) {
-                throw new AddressBookBusinessException(
-                        MessageConstant.DISTANCE_MORE_THAN_5KM
-                );
+                throw new AddressBookBusinessException(MessageConstant.DISTANCE_MORE_THAN_5KM);
             }
 
             checkShopOpen();
 
             // Redis取号仍在数据库事务外。
-            String orderNumber =
-                    String.valueOf(redisIdWorker.nextId("order"));
+            String orderNumber = String.valueOf(redisIdWorker.nextId("order"));
 
             // 5. 经独立Spring Bean进入创建事务。
             creationAttempted = true;
 
-            return orderCreateTxService.createOrder(
-                    userId,
-                    dto,
-                    checkedAddress,
-                    orderNumber,
-                    requestHash
-            );
+            return orderCreateTxService.createOrder(userId, dto, checkedAddress, orderNumber, requestHash);
 
         } catch (RuntimeException failure) {
 
             // 6. 创建事务代理已退出。
             // 动态校验失败也可能与另一个同号请求成功创建交错。
-            OrderSubmitVO committed = findReplayOrNull(
-                    userId,
-                    dto.getRequestId(),
-                    requestHash
-            );
+            OrderSubmitVO committed = findReplayOrNull(userId, dto.getRequestId(), requestHash);
 
             if (committed != null) {
                 return committed;
             }
 
             // 不记录完整DTO、SQL原文、备注和收件信息。
-            log.warn(
-                    "下单未取得成功结果，userId={}，requestId={}，failureType={}",
+            log.warn("下单未取得成功结果，userId={}，requestId={}，failureType={}",
                     userId,
                     dto.getRequestId(),
-                    failure.getClass().getSimpleName()
-            );
+                    failure.getClass().getSimpleName());
 
             if (isUniqueConstraint(failure, "uk_orders_user_request")) {
                 // 请求号冲突但暂时未查到结果，保留原号继续确认。
@@ -246,15 +224,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             }
 
             if (isUniqueConstraint(failure, "uk_orders_number")) {
-                throw new OrderBusinessException(
-                        "订单号冲突，请使用原请求号稍后重试"
-                );
+                throw new OrderBusinessException("订单号冲突，请使用原请求号稍后重试");
             }
 
             if (failure instanceof PessimisticLockingFailureException) {
-                throw new OrderBusinessException(
-                        "购物车操作冲突，请使用原请求号重试"
-                );
+                throw new OrderBusinessException("购物车操作冲突，请使用原请求号重试");
             }
 
             if (failure instanceof BaseException businessFailure) {
@@ -265,16 +239,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 throw new OrderBusinessException("订单数据保存失败");
             }
 
-            if (creationAttempted
-                    && (failure instanceof DataAccessException
-                    || failure instanceof TransactionException)) {
+            if (creationAttempted && (failure instanceof DataAccessException || failure instanceof TransactionException)) {
                 // 包括COMMIT附近的连接异常，不能直接认定没有创建订单。
                 throw new OrderSubmitUnknownException(dto.getRequestId());
             }
 
-            throw new OrderBusinessException(
-                    "订单提交失败，请使用原请求号稍后重试"
-            );
+            throw new OrderBusinessException("订单提交失败，请使用原请求号稍后重试");
         }
     }
 
@@ -282,26 +252,17 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * 查询本人同请求号的已提交订单。
      * 本方法及外层submitOrder均不开启事务。
      */
-    private OrderSubmitVO findReplayOrNull(
-            Long userId,
-            String requestId,
-            String requestHash) {
+    private OrderSubmitVO findReplayOrNull(Long userId, String requestId, String requestHash) {
 
         Orders order;
 
         try {
-            order = ordersMapper.findByUserAndRequestId(
-                    userId,
-                    requestId
-            );
+            order = ordersMapper.findByUserAndRequestId(userId, requestId);
         } catch (DataAccessException failure) {
-
-            log.warn(
-                    "原订单查询暂不可用，userId={}，requestId={}，failureType={}",
+            log.warn("原订单查询暂不可用，userId={}，requestId={}，failureType={}",
                     userId,
                     requestId,
-                    failure.getClass().getSimpleName()
-            );
+                    failure.getClass().getSimpleName());
 
             throw new OrderSubmitUnknownException(requestId);
         }
@@ -314,15 +275,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 || order.getRequestId().startsWith("legacy-")
                 || order.getRequestHash() == null
                 || !order.getRequestHash().matches("[0-9a-f]{64}")) {
-            throw new OrderBusinessException(
-                    "该订单不能通过此请求重放"
-            );
+            throw new OrderBusinessException("该订单不能通过此请求重放");
         }
 
         if (!Objects.equals(requestHash, order.getRequestHash())) {
-            throw new OrderBusinessException(
-                    "请求号已用于其他下单内容，请勿复用"
-            );
+            throw new OrderBusinessException("请求号已用于其他下单内容，请勿复用");
         }
 
         return OrderSubmitVO.builder()
@@ -337,9 +294,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * 精确识别MySQL 1062及指定约束。
      * 不把所有DuplicateKeyException都当成请求号冲突。
      */
-    private boolean isUniqueConstraint(
-            Throwable failure,
-            String constraintName) {
+    private boolean isUniqueConstraint(Throwable failure, String constraintName) {
 
         Pattern pattern = Pattern.compile(
                 "for key ['`](?:[^'`]+\\.)?"
@@ -348,9 +303,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 Pattern.CASE_INSENSITIVE
         );
 
-        for (Throwable cause = failure;
-             cause != null;
-             cause = cause.getCause()) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
 
             if (cause instanceof SQLException sql
                     && sql.getErrorCode() == 1062
@@ -367,26 +320,29 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * C端-订单支付
      */
     @Override
-    public OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO) {
-
-        // 检验有没有配置商户号等，若配置了则可删除该段判断
-        WeChatPayUtil weChatPayUtil = weChatPayUtilProvider.getIfAvailable();
-        if (weChatPayUtil == null) {
-            throw new OrderBusinessException("当前环境未配置微信支付");
-        }
-
-        // 正常支付逻辑如下
+    public OrderPaymentVO payment(OrdersPaymentDTO dto) {
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
-        // 1. 校验支付方式
-        if (!Objects.equals(ordersPaymentDTO.getPayMethod(), Orders.wechatPay)) {
-            throw new OrderBusinessException("暂不支持该支付方式");
+        if (userId == null) {
+            throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
         }
 
-        // 2. 查询当前用户订单
+        if (dto == null
+                || StrUtil.isBlank(dto.getOrderNumber())
+                || !Orders.wechatPay.equals(dto.getPayMethod())) {
+            throw new OrderBusinessException("支付参数错误");
+        }
+
+        WeChatPayUtil payUtil = weChatPayUtilProvider.getIfAvailable();
+
+        if (payUtil == null) {
+            throw new OrderBusinessException("当前环境未配置微信支付");
+        }
+
+        // 只能支付当前用户自己的订单
         Orders order = lambdaQuery()
-                .eq(Orders::getNumber, ordersPaymentDTO.getOrderNumber())
+                .eq(Orders::getNumber, dto.getOrderNumber())
                 .eq(Orders::getUserId, userId)
                 .one();
 
@@ -394,34 +350,40 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
-        // 3. 必须是待付款订单
-        if (!Objects.equals(order.getStatus(), Orders.PENDING_PAYMENT)) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        // 必须为待付款、未支付的微信订单
+        if (!Orders.PENDING_PAYMENT.equals(order.getStatus())
+                || !Orders.UN_PAID.equals(order.getPayStatus())
+                || !Orders.wechatPay.equals(order.getPayMethod())) {
+            throw new OrderBusinessException("订单状态已变化，请刷新后操作");
         }
 
-        // 4. 必须是未支付状态
-        if (!Objects.equals(order.getPayStatus(), Orders.UN_PAID)) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
-        }
-
-        // 5. 查询当前用户openid
-        User user = Db.lambdaQuery(User.class)
-                .eq(User::getId, userId)
-                .one();
+        User user = Db.getById(userId, User.class);
 
         if (user == null || StrUtil.isBlank(user.getOpenid())) {
             throw new OrderBusinessException(MessageConstant.ACCOUNT_NOT_FOUND);
         }
 
-        // 6. 调用微信支付
-        PrepayWithRequestPaymentResponse response = weChatPayUtil.pay(
-                order.getNumber(),
-                order.getAmount(),
+        /*
+         * 先保存支付记录，再调用微信。
+         *
+         * payment() 不加 @Transactional，
+         * 这里的插入先独立提交，不把微信 HTTP 调用放进事务。
+         */
+        PaymentRecord record = ensurePaymentRecord(order);
+
+        if (!PaymentRecord.PENDING.equals(record.getStatus())) {
+            throw new OrderBusinessException("支付结果已变化，请刷新订单");
+        }
+
+        // 调用微信预下单，不代表已经支付成功
+        PrepayWithRequestPaymentResponse response = payUtil.pay(
+                record.getPayNumber(),
+                record.getAmount(),
                 "DineFlow订单",
                 user.getOpenid()
         );
 
-        // 7. 封装小程序支付参数
+        // 保持原来的返回结构，前端请求参数也不变
         return OrderPaymentVO.builder()
                 .timeStamp(response.getTimeStamp())
                 .nonceStr(response.getNonceStr())
@@ -431,84 +393,263 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .build();
     }
 
+
+    /**
+     * 确保订单有对应的支付记录。
+     * 已存在时必须复用原支付号和金额，
+     * 不能覆盖已有支付结果。
+     */
+    private PaymentRecord ensurePaymentRecord(Orders order) {
+
+        moneyToFen(order.getAmount());
+
+        PaymentRecord record = new PaymentRecord();
+
+        record.setOrderId(order.getId());
+        record.setPayNumber(order.getNumber());
+        record.setAmount(order.getAmount());
+        record.setCreateTime(LocalDateTime.now().withNano(0));
+
+        paymentRecordMapper.insertIfAbsent(record);
+
+        record = paymentRecordMapper.selectOne(Wrappers.<PaymentRecord>lambdaQuery()
+                .eq(PaymentRecord::getOrderId, order.getId()));
+
+        if (record == null || !Objects.equals(record.getPayNumber(), order.getNumber())
+                || record.getAmount() == null
+                || record.getAmount().compareTo(order.getAmount()) != 0
+                || (!PaymentRecord.PENDING.equals(record.getStatus())
+                && !PaymentRecord.SUCCESS.equals(record.getStatus()))) {
+
+            throw new OrderBusinessException("支付记录与订单不一致");
+        }
+
+        return record;
+    }
+
     /**
      * C端-支付成功回调
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void paySuccess(Transaction transaction) {
+    public Orders paySuccess(Transaction transaction) {
 
-        // 1. 微信支付状态必须为 SUCCESS
-        if (transaction.getTradeState() != Transaction.TradeStateEnum.SUCCESS) {
-            log.warn("微信支付状态非SUCCESS，订单号：{}，状态：{}", transaction.getOutTradeNo(), transaction.getTradeState());
-            return;
+        if (transaction == null) {
+            throw new OrderBusinessException("支付通知为空");
         }
 
-        // 2. 根据订单号查询本地订单
-        Orders order = lambdaQuery()
-                .eq(Orders::getNumber, transaction.getOutTradeNo())
-                .one();
+        if (transaction.getTradeState() != Transaction.TradeStateEnum.SUCCESS) {
+            return null;
+        }
+
+        /*
+         * 回调已经由现有 Controller 使用微信 SDK 验签、解密。
+         * 这里继续校验业务信息。
+         */
+        if (StrUtil.isBlank(transaction.getMchid())
+                || StrUtil.isBlank(transaction.getAppid())
+                || !Objects.equals(weChatProperties.getMchid(), transaction.getMchid())
+                || !Objects.equals(weChatProperties.getAppid(), transaction.getAppid())
+                || StrUtil.isBlank(transaction.getOutTradeNo())
+                || StrUtil.isBlank(transaction.getTransactionId())
+                || transaction.getTransactionId().length() > 64
+                || transaction.getAmount() == null
+                || !"CNY".equals(transaction.getAmount().getCurrency())) {
+
+            throw new OrderBusinessException("支付通知信息不一致");
+        }
+
+        // 先锁定订单，再检查状态
+        Orders order = ordersMapper.selectByNumberForUpdate(
+                transaction.getOutTradeNo()
+        );
 
         if (order == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
-        // 3. 幂等判断
-        if (Objects.equals(order.getPayStatus(), Orders.PAID)) {
-            log.info("订单已完成支付，忽略重复回调，订单号：{}", order.getNumber());
+        if (!Orders.wechatPay.equals(order.getPayMethod())
+                || !Objects.equals(moneyToFen(order.getAmount()), transaction.getAmount().getTotal())) {
+
+            throw new OrderBusinessException("支付方式或金额不一致");
+        }
+
+        // 使用微信确认的支付成功时间
+        LocalDateTime paidAt;
+
+        try {
+            paidAt = OffsetDateTime
+                    .parse(transaction.getSuccessTime())
+                    .atZoneSameInstant(ZoneId.of("Asia/Shanghai"))
+                    .toLocalDateTime()
+                    .withNano(0);
+        } catch (RuntimeException e) {
+            throw new OrderBusinessException("支付成功时间无效");
+        }
+
+        PaymentRecord record = ensurePaymentRecord(order);
+
+        String transactionId = transaction.getTransactionId();
+
+        // 即使是重复通知，也不能跳过交易号检查
+        if (PaymentRecord.SUCCESS.equals(record.getStatus())
+                && !Objects.equals(record.getTransactionId(), transactionId)) {
+
+            throw new OrderBusinessException("微信支付交易号不一致");
+        }
+
+        // 正常支付：待付款、未支付
+        boolean normal = Orders.PENDING_PAYMENT.equals(order.getStatus())
+                && Orders.UN_PAID.equals(order.getPayStatus());
+
+        // 晚到支付：订单已取消、本地仍未记录支付成功
+        boolean late = Orders.CANCELLED.equals(order.getStatus())
+                && Orders.UN_PAID.equals(order.getPayStatus());
+
+        /*
+         * 已经处理过的同一笔支付：
+         * 1. 正常履约中的已支付订单；
+         * 2. 已取消、退款中或已退款的订单。
+         * 同时兼容原订单已记录真实交易号、
+         * 但新增支付表中尚无对应记录的情况。
+         */
+        boolean knownPayment = Objects.equals(
+                order.getTransactionId(), transactionId)
+                && ((Orders.PAID.equals(order.getPayStatus())
+                && List.of(Orders.TO_BE_CONFIRMED, Orders.CONFIRMED, Orders.DELIVERY_IN_PROGRESS, Orders.COMPLETED).contains(order.getStatus()))
+                || (Orders.CANCELLED.equals(order.getStatus())
+                && (Orders.REFUNDING.equals(order.getPayStatus())
+                || Orders.REFUND.equals(order.getPayStatus())))
+        );
+
+        if ((!normal && !late && !knownPayment)
+                || ((normal || late)
+                && PaymentRecord.SUCCESS.equals(record.getStatus()))) {
+
+            throw new OrderBusinessException("订单与支付记录状态不一致");
+        }
+
+        // 支付记录只允许由待确认变为支付成功
+        if (PaymentRecord.PENDING.equals(record.getStatus())) {
+
+            int changed = paymentRecordMapper.update(
+                    null,
+                    Wrappers.<PaymentRecord>lambdaUpdate()
+                            .eq(PaymentRecord::getId, record.getId())
+                            .eq(PaymentRecord::getStatus, PaymentRecord.PENDING)
+                            .set(PaymentRecord::getStatus, PaymentRecord.SUCCESS)
+                            .set(PaymentRecord::getTransactionId, transactionId)
+                            .set(PaymentRecord::getSuccessTime, paidAt)
+            );
+
+            if (changed != 1) {
+                throw new OrderBusinessException("支付记录更新失败");
+            }
+        }
+
+        // 重复结果不能再次改变订单状态
+        if (knownPayment) {
+
+            // 仍在退款中，可以继续使用原退款号申请同一笔退款
+            return Orders.REFUNDING.equals(order.getPayStatus()) ? order : null;
+        }
+
+        int targetStatus = late ? Orders.CANCELLED : Orders.TO_BE_CONFIRMED;
+
+        int targetPayStatus = late ? Orders.REFUNDING : Orders.PAID;
+
+        boolean changed = lambdaUpdate()
+                .eq(Orders::getId, order.getId())
+                .eq(Orders::getStatus, order.getStatus())
+                .eq(Orders::getPayStatus, Orders.UN_PAID)
+                .set(Orders::getStatus, targetStatus)
+                .set(Orders::getPayStatus, targetPayStatus)
+                .set(Orders::getCheckoutTime, paidAt)
+                .set(Orders::getTransactionId, transactionId)
+                .update();
+
+        if (!changed) {
+            throw new OrderBusinessException("订单支付状态更新失败");
+        }
+
+        /*
+         * 返回本次处理后的快照。
+         * 晚到支付只修改支付信息，保留原取消原因和取消时间，
+         * 不会重新激活已取消订单。
+         */
+        order.setStatus(targetStatus);
+        order.setPayStatus(targetPayStatus);
+        order.setCheckoutTime(paidAt);
+        order.setTransactionId(transactionId);
+
+        // 晚到支付：退款意图与本次支付结果在同一事务中保存。
+        if (late) {
+            refundRecordTxService.prepare(order.getNumber());
+        }
+
+        return order;
+    }
+
+    /**
+     * 由 Controller 在 paySuccess() 返回后调用。
+     * 这个方法不加 @Transactional。
+     */
+    @Override
+    public void handlePaySuccessAfterCommit(Orders order) {
+
+        if (order == null) {
             return;
         }
 
-        // 4. 校验商户号
-        if (!Objects.equals(transaction.getMchid(), weChatProperties.getMchid())) {
-            throw new OrderBusinessException("微信支付商户号不一致");
+        // 已取消订单收到支付成功结果，申请退款
+        if (Orders.CANCELLED.equals(order.getStatus()) && Orders.REFUNDING.equals(order.getPayStatus())) {
+            requestRefund(order);
+            return;
         }
 
-        // 5. 校验 AppId
-        if (!Objects.equals(transaction.getAppid(), weChatProperties.getAppid())) {
-            throw new OrderBusinessException("微信支付 AppId 不一致");
+        // 正常支付成功后发送来单提醒
+        try {
+            Orders latest = getById(order.getId());
+
+            if (latest == null
+                    || !Orders.TO_BE_CONFIRMED.equals(latest.getStatus())
+                    || !Orders.PAID.equals(latest.getPayStatus())) {
+                return;
+            }
+
+            Map<String, Object> message = new HashMap<>();
+
+            message.put("type", 1);
+            message.put("orderId", latest.getId());
+            message.put("content", "订单号：" + latest.getNumber());
+
+            webSocketServer.sendToAllClient(JSONUtil.toJsonStr(message));
+
+        } catch (Exception e) {
+            // 支付已经提交，提醒失败不能被当成支付失败
+            log.warn(
+                    "来单提醒发送失败，orderId={}, exceptionType={}",
+                    order.getId(),
+                    e.getClass().getSimpleName()
+            );
+        }
+    }
+
+
+    /**
+     * 金额由元转为分。
+     */
+    private int moneyToFen(BigDecimal amount) {
+
+        if (amount == null || amount.signum() <= 0) {
+            throw new OrderBusinessException("订单金额无效");
         }
 
-        // 6. 校验订单金额
-        int expectedAmount = order.getAmount()
-                .movePointRight(2)
-                .intValueExact();
-
-        Integer actualAmount = transaction.getAmount().getTotal();
-
-        if (!Objects.equals(expectedAmount, actualAmount)) {
-            throw new OrderBusinessException("微信支付金额不一致");
+        try {
+            return amount.movePointRight(2).intValueExact();
+        } catch (ArithmeticException e) {
+            throw new OrderBusinessException("订单金额精度或范围无效");
         }
-
-        // 7. 幂等更新订单：官方明确要求商户系统做好重入/幂等设计；
-        //                  如果微信没有收到成功响应，还会重新通知。
-        boolean success = lambdaUpdate()
-                .eq(Orders::getId, order.getId())
-                .eq(Orders::getPayStatus, Orders.UN_PAID)
-                .set(Orders::getPayStatus, Orders.PAID)
-                .set(Orders::getStatus, Orders.TO_BE_CONFIRMED)
-                .set(Orders::getCheckoutTime, LocalDateTime.now())
-                .set(Orders::getTransactionId, transaction.getTransactionId())
-                .update();
-
-        if (!success) {
-            /*
-             * 可能另外一个重复回调已经先完成更新。
-             * 此处根据项目业务决定：
-             * 可以重新查询判断，也可以记录日志。
-             */
-            log.info("订单支付状态未发生变化，可能已经被其他回调处理，订单号：{}", order.getNumber());
-        }
-
-        log.info("订单支付成功，订单号：{}，微信支付交易号：{}", order.getNumber(), transaction.getTransactionId());
-
-        // WebSocket 推送来单提醒
-        Map<String, Object> message = new HashMap<>();
-        message.put("type", 1);
-        message.put("orderId", order.getId());
-        message.put("content", "订单号：" + order.getNumber());
-
-        webSocketServer.sendToAllClient(JSONUtil.toJsonStr(message));
     }
 
     /**
@@ -549,10 +690,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         // 5. 将订单明细装入对应的 VO
         records.forEach(order -> order.setOrderDetailList(
-                detailMap.getOrDefault(
-                        order.getId(),
-                        Collections.emptyList()
-                )
+                detailMap.getOrDefault(order.getId(), Collections.emptyList())
         ));
 
         return new PageResult<>(resultPage.getTotal(), records);
@@ -586,6 +724,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         orderDetailVO.setOrderDetailList(orderDetailList);
 
+        refundRecordTxService.fillRefundInfo(orderDetailVO);
+
         return orderDetailVO;
     }
 
@@ -597,58 +737,29 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         Long userId = ThreadLocalUtil.getCurrentId();
 
-        // 1. 查询当前用户的订单
+        if (userId == null) {
+            throw new OrderBusinessException(MessageConstant.USER_NOT_LOGIN);
+        }
+
+        if (id == null || id <= 0) {
+            throw new OrderBusinessException("订单ID无效");
+        }
+
         Orders order = lambdaQuery()
-                .eq(Orders::getUserId, userId)
                 .eq(Orders::getId, id)
+                .eq(Orders::getUserId, userId)
                 .one();
 
         if (order == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
-        // 2. 校验订单状态
-        if (!Orders.PENDING_PAYMENT.equals(order.getStatus()) && !Orders.TO_BE_CONFIRMED.equals(order.getStatus())) {
+        if (cannotCancel(order, false)) {
             throw new OrderBusinessException("当前订单状态不可取消");
         }
 
-        Integer payStatus = order.getPayStatus();
-
-        // 3. 已支付订单进行退款
-        if (Orders.PAID.equals(payStatus)) {
-            /*
-            Refund refund = weChatPayUtil.refund(
-                    order.getNumber(),
-                    "RF" + order.getNumber(),
-                    order.getAmount(),
-                    order.getAmount(),
-                    reason
-            );
-
-            Integer payStatus;
-
-            if (Status.SUCCESS.equals(refund.getStatus())) {
-                payStatus = Orders.REFUND;
-            } else if (Status.PROCESSING.equals(refund.getStatus())) {
-                payStatus = Orders.REFUNDING;
-            } else {
-                throw new OrderBusinessException("退款申请失败，退款状态：" + refund.getStatus());
-            }
-            */
-
-            // 模拟退款成功
-            payStatus = Orders.REFUND;
-        }
-
-        // 4. 更新订单状态
-        lambdaUpdate()
-                .eq(Orders::getId, id)
-                .eq(Orders::getUserId, userId)
-                .set(Orders::getStatus, Orders.CANCELLED)
-                .set(Orders::getCancelReason, "用户取消订单")
-                .set(Orders::getCancelTime, LocalDateTime.now())
-                .set(Orders::getPayStatus, payStatus)
-                .update();
+        cancelAndRefund(order, "用户取消订单"
+        );
     }
 
     /**
@@ -670,16 +781,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         }
 
         // 2. 只有已完成或已取消订单允许再来一单
-        if (!Orders.COMPLETED.equals(order.getStatus())
-                && !Orders.CANCELLED.equals(order.getStatus())) {
+        if (!Orders.COMPLETED.equals(order.getStatus()) && !Orders.CANCELLED.equals(order.getStatus())) {
             throw new OrderBusinessException("当前订单状态不支持再来一单");
         }
 
         // 3. 查询原订单明细
-        List<OrderDetail> orderDetailList =
-                Db.lambdaQuery(OrderDetail.class)
-                        .eq(OrderDetail::getOrderId, id)
-                        .list();
+        List<OrderDetail> orderDetailList = Db.lambdaQuery(OrderDetail.class)
+                .eq(OrderDetail::getOrderId, id)
+                .list();
 
         if (CollUtil.isEmpty(orderDetailList)) {
             throw new OrderBusinessException("订单明细不存在");
@@ -794,16 +903,21 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      */
     @Override
     public void completeOrder(Long id) {
-        // 只有派送中的订单才能点击完成订单
-        boolean success = lambdaUpdate()
+
+        if (id == null || id <= 0) {
+            throw new OrderBusinessException("订单ID无效");
+        }
+
+        boolean changed = lambdaUpdate()
                 .eq(Orders::getId, id)
                 .eq(Orders::getStatus, Orders.DELIVERY_IN_PROGRESS)
+                .eq(Orders::getPayStatus, Orders.PAID)
                 .set(Orders::getStatus, Orders.COMPLETED)
-                .set(Orders::getDeliveryTime, LocalDateTime.now())
+                .set(Orders::getDeliveryTime, LocalDateTime.now().withNano(0))
                 .update();
 
-        if (!success) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        if (!changed) {
+            throw new OrderBusinessException("订单状态已变化，请刷新后操作");
         }
     }
 
@@ -813,141 +927,69 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     @Override
     public void adminCancelOrder(OrdersCancelDTO dto) {
 
-        // 1. 查询订单
+        if (dto == null || dto.getId() == null || dto.getId() <= 0) {
+            throw new OrderBusinessException("订单ID无效");
+        }
+
+        String reason = requireReason(dto.getCancelReason());
+
         Orders order = getById(dto.getId());
 
         if (order == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
-        // 2. 已完成、已取消订单不能取消
-        if (Orders.COMPLETED.equals(order.getStatus())
-                || Orders.CANCELLED.equals(order.getStatus())) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        if (cannotCancel(order, true)) {
+            throw new OrderBusinessException("当前订单状态不可取消");
         }
 
-        Integer payStatus = order.getPayStatus();
-
-        // 3. 已支付订单先申请退款
-        if (Orders.PAID.equals(payStatus)) {
-            /*
-            // 同一订单整单退款固定使用同一个退款单号
-            Refund refund = weChatPayUtil.refund(
-                    order.getNumber(),
-                    "RF" + order.getNumber(),
-                    order.getAmount(),
-                    order.getAmount(),
-                    reason
-            );
-
-            Integer payStatus;
-
-            if (Status.SUCCESS.equals(refund.getStatus())) {
-                payStatus = Orders.REFUND;
-            } else if (Status.PROCESSING.equals(refund.getStatus())) {
-                payStatus = Orders.REFUNDING;
-            } else {
-                throw new OrderBusinessException("退款申请失败，退款状态：" + refund.getStatus());
-            }
-            */
-
-            // 模拟退款成功
-            payStatus = Orders.REFUND;
-
-        }
-
-        // 4. 更新订单
-        boolean success = lambdaUpdate()
-                .eq(Orders::getId, dto.getId())
-                .eq(Orders::getStatus, order.getStatus())
-                .set(Orders::getStatus, Orders.CANCELLED)
-                .set(Orders::getPayStatus, payStatus)
-                .set(Orders::getCancelReason, dto.getCancelReason())
-                .set(Orders::getCancelTime, LocalDateTime.now())
-                .update();
-
-        if (!success) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
-        }
+        cancelAndRefund(order, reason);
     }
 
     /**
-     * 拒单
+     * 管理端拒单。
+     * 取消状态与退款记录一起提交，之后再调用微信。
      */
     @Override
     public void rejectionOrder(OrdersRejectionDTO dto) {
-        // 1. 查询订单
+
+        if (dto == null || dto.getId() == null || dto.getId() <= 0) {
+            throw new OrderBusinessException("订单ID无效");
+        }
+
+        String reason = requireReason(dto.getRejectionReason());
+
         Orders order = getById(dto.getId());
 
         if (order == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
-        // 2. 只有待接单订单才能拒单
-        if (!Orders.TO_BE_CONFIRMED.equals(order.getStatus())) {
-            throw new OrderBusinessException("当前订单状态不可拒单");
-        }
+        // 事务服务内部仍严格限定：待接单＋已支付。
+        refundRecordTxService.cancelAndPrepare(order, reason, true);
 
-        Integer payStatus = order.getPayStatus();
-
-        // 3. 已支付订单，需要退款
-        if (Orders.PAID.equals(payStatus)) {
-            /*
-            Refund refund = weChatPayUtil.refund(
-                    order.getNumber(),
-                    "RF" + order.getNumber(),
-                    order.getAmount(),
-                    order.getAmount(),
-                    reason
-            );
-
-            Integer payStatus;
-
-            if (Status.SUCCESS.equals(refund.getStatus())) {
-                payStatus = Orders.REFUND;
-            } else if (Status.PROCESSING.equals(refund.getStatus())) {
-                payStatus = Orders.REFUNDING;
-            } else {
-                throw new OrderBusinessException("退款申请失败，退款状态：" + refund.getStatus());
-            }
-            */
-
-            payStatus = Orders.REFUND;
-
-        }
-
-        // 4. 更新订单状态
-        boolean success = lambdaUpdate()
-                .eq(Orders::getId, dto.getId())
-                .eq(Orders::getStatus, Orders.TO_BE_CONFIRMED)
-                .set(Orders::getStatus, Orders.CANCELLED)
-                .set(Orders::getPayStatus, payStatus)
-                .set(Orders::getRejectionReason, dto.getRejectionReason())
-                .set(Orders::getCancelTime, LocalDateTime.now())
-                .update();
-
-        if (!success) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
-        }
+        requestRefund(order);
     }
 
     /**
      * 接单
      */
     @Override
-    public void confirmOrder(OrdersConfirmDTO ordersConfirmDTO) {
+    public void confirmOrder(OrdersConfirmDTO dto) {
 
-        Long id = ordersConfirmDTO.getId();
+        if (dto == null || dto.getId() == null || dto.getId() <= 0) {
+            throw new OrderBusinessException("订单ID无效");
+        }
 
-        // 只有待接单订单才能接单
-        boolean success = lambdaUpdate()
-                .eq(Orders::getId, id)
+        boolean changed = lambdaUpdate()
+                .eq(Orders::getId, dto.getId())
                 .eq(Orders::getStatus, Orders.TO_BE_CONFIRMED)
+                .eq(Orders::getPayStatus, Orders.PAID)
                 .set(Orders::getStatus, Orders.CONFIRMED)
                 .update();
 
-        if (!success) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        if (!changed) {
+            throw new OrderBusinessException("订单状态已变化，请刷新后操作");
         }
     }
 
@@ -970,6 +1012,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         OrderDetailVO orderDetailVO = BeanUtil.copyProperties(order, OrderDetailVO.class);
 
         orderDetailVO.setOrderDetailList(orderDetailList);
+        refundRecordTxService.fillRefundInfo(orderDetailVO);
         return orderDetailVO;
     }
 
@@ -979,17 +1022,19 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     @Override
     public void deliveryOrder(Long id) {
 
-        // 只有已接单的订单才能开始派送
-        boolean success = lambdaUpdate()
+        if (id == null || id <= 0) {
+            throw new OrderBusinessException("订单ID无效");
+        }
+
+        boolean changed = lambdaUpdate()
                 .eq(Orders::getId, id)
                 .eq(Orders::getStatus, Orders.CONFIRMED)
+                .eq(Orders::getPayStatus, Orders.PAID)
                 .set(Orders::getStatus, Orders.DELIVERY_IN_PROGRESS)
                 .update();
 
-        if (!success) {
-            throw new OrderBusinessException(
-                    MessageConstant.ORDER_STATUS_ERROR
-            );
+        if (!changed) {
+            throw new OrderBusinessException("订单状态已变化，请刷新后操作");
         }
     }
 
@@ -999,98 +1044,79 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
     @Override
     public void handleRefundNotify(RefundNotification notification) {
 
-        String orderNumber = notification.getOutTradeNo();
-
-        // 1. 根据商户订单号查询订单
-        Orders order = lambdaQuery()
-                .eq(Orders::getNumber, orderNumber)
-                .one();
-
-        if (order == null) {
-            throw new OrderBusinessException("退款订单不存在");
+        if (notification == null) {
+            throw new OrderBusinessException("退款通知为空");
         }
 
-        // 2. 幂等处理
-        // 微信可能重复通知，已经退款成功直接返回
-        if (Orders.REFUND.equals(order.getPayStatus())) {
-            return;
+        // Controller已经完成验签、解密。
+        // 统一转换后，与主动查询共用同一套结果处理。
+        Refund result = new Refund();
+
+        result.setOutTradeNo(notification.getOutTradeNo());
+        result.setOutRefundNo(notification.getOutRefundNo());
+        result.setTransactionId(notification.getTransactionId());
+        result.setRefundId(notification.getRefundId());
+        result.setAmount(notification.getAmount());
+        result.setStatus(notification.getRefundStatus());
+        result.setSuccessTime(notification.getSuccessTime());
+
+        refundRecordTxService.applyResult(result);
+    }
+
+    /**
+     * 用户允许取消：
+     * 1. 待付款、未支付；
+     * 2. 待接单、已支付。
+     * 管理端额外允许取消：
+     * 3. 已接单、已支付。
+     * 派送中和已完成均不能取消。
+     */
+    private boolean cannotCancel(Orders order, boolean admin) {
+
+        return (!Orders.PENDING_PAYMENT.equals(order.getStatus())
+                || !Orders.UN_PAID.equals(order.getPayStatus()))
+                && (!Orders.TO_BE_CONFIRMED.equals(order.getStatus()) || !Orders.PAID.equals(order.getPayStatus()))
+                && (!admin || !Orders.CONFIRMED.equals(order.getStatus())
+                || !Orders.PAID.equals(order.getPayStatus()));
+    }
+
+
+    /**
+     * 规范化并检查取消、拒单原因。
+     */
+    private String requireReason(String reason) {
+
+        String value = StrUtil.trim(reason);
+
+        if (StrUtil.isBlank(value) || value.length() > 255) {
+            throw new OrderBusinessException("取消或拒单原因不能为空且不能超过255个字符");
         }
 
-        // 3. 校验退款金额
-        if (notification.getAmount() == null || notification.getAmount().getRefund() == null) {
-            throw new OrderBusinessException("退款金额异常");
+        return value;
+    }
+
+
+    /**
+     * 通过独立事务服务一起保存取消结果与退款意图，
+     * 提交后再进入事务外退款编排。
+     * 这个外层方法不加@Transactional。
+     */
+    private void cancelAndRefund(Orders order, String reason) {
+
+        refundRecordTxService.cancelAndPrepare(order, reason, false);
+
+        if (Orders.PAID.equals(order.getPayStatus())) {
+            requestRefund(order);
         }
+    }
 
-        long refundAmount = notification
-                .getAmount()
-                .getRefund();
 
-        long orderAmount = order.getAmount()
-                .movePointRight(2)
-                .longValueExact();
+    /**
+     * 事务外查询或申请退款。
+     * 退款记录与订单结果由独立短事务统一更新。
+     */
+    private void requestRefund(Orders order) {
 
-        if (refundAmount != orderAmount) {
-            throw new OrderBusinessException("退款金额与订单金额不一致");
-        }
-
-        // 4. 根据微信最终退款状态处理
-        Status refundStatus = notification.getRefundStatus();
-
-        if (Status.SUCCESS.equals(refundStatus)) {
-            boolean success = lambdaUpdate()
-                    .eq(Orders::getId, order.getId())
-                    .in(
-                            Orders::getPayStatus,
-                            Orders.PAID,
-                            Orders.REFUNDING
-                    )
-                    .set(
-                            Orders::getPayStatus,
-                            Orders.REFUND
-                    )
-                    .update();
-
-            // 如果已经被重复回调处理，不需要认为业务失败
-            if (!success) {
-                Orders latestOrder = getById(order.getId());
-                if (!Orders.REFUND.equals(latestOrder.getPayStatus())) {
-                    throw new OrderBusinessException("订单退款状态更新失败");
-                }
-            }
-
-            log.info(
-                    "订单退款成功，orderNumber={}, refundNumber={}",
-                    notification.getOutTradeNo(),
-                    notification.getOutRefundNo()
-            );
-
-            return;
-        }
-
-        if (Status.PROCESSING.equals(refundStatus)) {
-            // 仍然退款中，无需标记已退款
-            lambdaUpdate()
-                    .eq(Orders::getId, order.getId())
-                    .eq(Orders::getPayStatus, Orders.PAID)
-                    .set(
-                            Orders::getPayStatus,
-                            Orders.REFUNDING
-                    )
-                    .update();
-
-            return;
-        }
-
-        // CLOSED / ABNORMAL
-        log.error(
-                "订单退款异常，orderNumber={}, refundNumber={}, status={}",
-                notification.getOutTradeNo(),
-                notification.getOutRefundNo(),
-                refundStatus
-        );
-
-        throw new OrderBusinessException(
-                "微信退款状态异常：" + refundStatus
-        );
+        refundRecoveryService.process(order.getNumber());
     }
 }

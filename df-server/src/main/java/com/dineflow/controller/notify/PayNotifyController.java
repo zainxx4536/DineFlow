@@ -1,5 +1,6 @@
 package com.dineflow.controller.notify;
 
+import com.dineflow.entity.Orders;
 import com.dineflow.service.IOrdersService;
 import com.dineflow.utils.WeChatPayUtil;
 import com.wechat.pay.java.core.exception.ValidationException;
@@ -11,10 +12,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.*;
 
+import javax.servlet.http.HttpServletRequest;
+import java.nio.charset.StandardCharsets;
+
 /**
- * 支付回调相关接口，给微信平台调用的接口
+ * 微信支付、退款结果通知接口。
  */
 @RestController
 @Slf4j
@@ -33,7 +38,7 @@ public class PayNotifyController {
     private final WeChatPayUtil weChatPayUtil;
 
     /**
-     * 微信支付结果回调
+     * 微信支付结果通知。
      */
     @PostMapping("/pay")
     public ResponseEntity<Void> payNotify(
@@ -41,9 +46,17 @@ public class PayNotifyController {
             @RequestHeader("Wechatpay-Nonce") String nonce,
             @RequestHeader("Wechatpay-Signature") String signature,
             @RequestHeader("Wechatpay-Timestamp") String timestamp,
-            @RequestBody String body) {
+            HttpServletRequest request) {
+
         try {
-            // 1. SDK完成验签、解密、反序列化
+            /*
+             * 直接读取原始请求体。
+             * 保留 JSON 中的空格、换行和字段顺序，
+             * 不经过 Jackson 反序列化。
+             */
+            String body = StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);
+
+            // SDK 完成验签、解密和反序列化
             Transaction transaction = weChatPayUtil.parsePayNotify(
                     serial,
                     nonce,
@@ -51,40 +64,34 @@ public class PayNotifyController {
                     timestamp,
                     body
             );
-            log.info(
-                    "收到微信支付回调，订单号：{}，微信支付交易号：{}，支付状态：{}",
-                    transaction.getOutTradeNo(),
-                    transaction.getTransactionId(),
-                    transaction.getTradeState()
-            );
-            // 2. 处理支付成功业务
-            ordersService.paySuccess(transaction);
-            // 3. 告诉微信：处理成功
+
+            /*
+             * 第一阶段：执行本地事务。
+             * 方法通过 Spring 代理返回时，事务已经提交。
+             */
+            Orders paidOrder = ordersService.paySuccess(transaction);
+
+            /*
+             * 第二阶段：事务外处理。
+             * 晚到支付申请退款，正常支付发送来单提醒。
+             */
+            ordersService.handlePaySuccessAfterCommit(paidOrder);
             return ResponseEntity.ok().build();
         } catch (ValidationException e) {
-            // 回调验签失败
-            log.warn(
-                    "微信支付回调验签失败，exceptionType={}",
-                    e.getClass().getSimpleName()
-            );
+            log.warn("微信支付回调验签失败，exceptionType={}", e.getClass().getSimpleName());
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
                     .build();
         } catch (Exception e) {
-            // 数据库等业务处理失败
-            log.error(
-                    "微信支付回调处理失败，exceptionType={}",
-                    e.getClass().getSimpleName()
-            );
+            log.error("微信支付回调处理失败，exceptionType={}", e.getClass().getSimpleName());
             return ResponseEntity
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .build();
         }
     }
 
-
     /**
-     * 微信退款结果回调
+     * 微信退款结果通知。
      */
     @PostMapping("/refund")
     public ResponseEntity<Void> refundNotify(
@@ -92,10 +99,12 @@ public class PayNotifyController {
             @RequestHeader("Wechatpay-Nonce") String nonce,
             @RequestHeader("Wechatpay-Signature") String signature,
             @RequestHeader("Wechatpay-Timestamp") String timestamp,
-            @RequestBody String body) {
+            HttpServletRequest request) {
 
         try {
-            // 验签 + 解密 + 反序列化
+            // 直接读取原始请求体，交给 SDK 验签
+            String body = StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);
+
             RefundNotification notification = weChatPayUtil.parseRefundNotify(
                     serial,
                     nonce,
@@ -103,27 +112,16 @@ public class PayNotifyController {
                     timestamp,
                     body
             );
-
             log.info("收到已验签的微信退款回调");
-
-            // 处理退款结果
             ordersService.handleRefundNotify(notification);
-
             return ResponseEntity.ok().build();
-
         } catch (ValidationException e) {
-            log.warn(
-                    "微信退款回调验签失败，exceptionType={}",
-                    e.getClass().getSimpleName()
-            );
+            log.warn("微信退款回调验签失败，exceptionType={}", e.getClass().getSimpleName());
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
                     .build();
         } catch (Exception e) {
-            log.error(
-                    "微信退款回调处理失败，exceptionType={}",
-                    e.getClass().getSimpleName()
-            );
+            log.error("微信退款回调处理失败，exceptionType={}", e.getClass().getSimpleName());
             return ResponseEntity
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .build();

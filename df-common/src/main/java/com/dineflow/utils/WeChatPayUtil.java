@@ -10,10 +10,7 @@ import com.wechat.pay.java.service.payments.jsapi.model.PrepayRequest;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
 import com.wechat.pay.java.service.refund.RefundService;
-import com.wechat.pay.java.service.refund.model.AmountReq;
-import com.wechat.pay.java.service.refund.model.CreateRequest;
-import com.wechat.pay.java.service.refund.model.Refund;
-import com.wechat.pay.java.service.refund.model.RefundNotification;
+import com.wechat.pay.java.service.refund.model.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -179,6 +176,17 @@ public class WeChatPayUtil {
                 requestParam,
                 RefundNotification.class
         );
+    }
+
+    /**
+     * 根据原商户退款号查询退款结果。
+     */
+    public Refund queryRefund(String refundNumber) {
+
+        QueryByOutRefundNoRequest request = new QueryByOutRefundNoRequest();
+        request.setOutRefundNo(refundNumber);
+
+        return refundService.queryByOutRefundNo(request);
     }
 
     /**

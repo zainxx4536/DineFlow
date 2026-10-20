@@ -22,7 +22,17 @@ public interface IOrdersService extends IService<Orders> {
 
     OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO);
 
-    void paySuccess(Transaction transaction);
+    /**
+     * 在本地事务中记录支付成功并更新订单。
+     * 返回需要继续处理的订单快照；
+     * 不需要后续处理时返回 null。
+     */
+    Orders paySuccess(Transaction transaction);
+
+    /**
+     * 支付事务提交后，执行退款申请或来单提醒。
+     */
+    void handlePaySuccessAfterCommit(Orders order);
 
     PageResult<HistoryOrdersQueryVO> historyOrdersQuery(OrdersPageQueryDTO ordersPageQueryDTO);
 

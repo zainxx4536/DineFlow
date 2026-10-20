@@ -21,9 +21,7 @@ import java.time.LocalDateTime;
 @TableName("orders")
 public class Orders implements Serializable {
 
-    /**
-     * 订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消
-     */
+    //订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消
     public static final Integer PENDING_PAYMENT = 1;
     public static final Integer TO_BE_CONFIRMED = 2;
     public static final Integer CONFIRMED = 3;
@@ -31,17 +29,15 @@ public class Orders implements Serializable {
     public static final Integer COMPLETED = 5;
     public static final Integer CANCELLED = 6;
 
-    /**
-     * 支付状态 0未支付 1已支付 2退款 3退款中
-     */
+
+    //支付状态 0未支付 1已支付 2退款 3退款中
     public static final Integer UN_PAID = 0;
     public static final Integer PAID = 1;
     public static final Integer REFUND = 2;
     public static final Integer REFUNDING = 3;
 
-    /**
-     * 支付方式 1微信 2支付宝
-     */
+
+    //支付方式 1微信 2支付宝
     public static final Integer wechatPay = 1;
     public static final Integer aliPay = 2;
 
@@ -51,7 +47,7 @@ public class Orders implements Serializable {
     private Long id;
     //订单号
     private String number;
-    //订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消 7退款
+    //订单状态：1待付款 2待接单 3已接单 4派送中 5已完成 6已取消
     private Integer status;
     //下单用户id
     private Long userId;
@@ -63,7 +59,7 @@ public class Orders implements Serializable {
     private LocalDateTime checkoutTime;
     //支付方式 1微信，2支付宝
     private Integer payMethod;
-    //支付状态 0未支付 1已支付 2退款
+    //支付状态：0未支付 1已支付 2已退款 3退款中
     private Integer payStatus;
     //实收金额
     private BigDecimal amount;
