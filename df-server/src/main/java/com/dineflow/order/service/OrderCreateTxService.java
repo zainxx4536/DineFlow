@@ -187,6 +187,7 @@ public class OrderCreateTxService {
         order.setNumber(orderNumber);
         order.setStatus(Orders.PENDING_PAYMENT);
         order.setPayStatus(Orders.UN_PAID);
+        order.setFundsSource(Orders.FUNDS_WECHAT);
         order.setOrderTime(LocalDateTime.now().withNano(0));
 
         order.setPhone(checkedAddress.getPhone());

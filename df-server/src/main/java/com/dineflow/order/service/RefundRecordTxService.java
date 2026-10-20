@@ -3,6 +3,8 @@ package com.dineflow.order.service;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.dineflow.entity.Orders;
+import com.dineflow.entity.PaymentRecord;
+import com.dineflow.mapper.PaymentRecordMapper;
 import com.dineflow.entity.RefundRecord;
 import com.dineflow.exception.OrderBusinessException;
 import com.dineflow.mapper.OrdersMapper;
@@ -27,6 +29,7 @@ public class RefundRecordTxService {
 
     private final OrdersMapper ordersMapper;
     private final RefundRecordMapper refundRecordMapper;
+    private final PaymentRecordMapper paymentRecordMapper;
 
     /**
      * 取消或拒单结果与退款意图一起提交。
@@ -40,17 +43,20 @@ public class RefundRecordTxService {
             String reason,
             boolean rejection) {
 
+        if (expected == null || !Orders.FUNDS_WECHAT.equals(expected.getFundsSource())) {
+            throw new OrderBusinessException("历史订单仅供查询，资金操作需人工核验");
+        }
         boolean paid = Orders.PAID.equals(expected.getPayStatus());
 
         boolean allowed = rejection
                 ? Orders.TO_BE_CONFIRMED.equals(expected.getStatus()) && paid
                 : (Orders.PENDING_PAYMENT.equals(expected.getStatus())
-                    && Orders.UN_PAID.equals(expected.getPayStatus()))
-                    || (paid
-                    && List.of(
-                            Orders.TO_BE_CONFIRMED,
-                            Orders.CONFIRMED
-                    ).contains(expected.getStatus()));
+                && Orders.UN_PAID.equals(expected.getPayStatus()))
+                || (paid
+                && List.of(
+                Orders.TO_BE_CONFIRMED,
+                Orders.CONFIRMED
+        ).contains(expected.getStatus()));
 
         if (!allowed) {
             throw new OrderBusinessException("当前订单不可取消或拒单");
@@ -74,6 +80,7 @@ public class RefundRecordTxService {
                 change,
                 Wrappers.<Orders>lambdaUpdate()
                         .eq(Orders::getId, expected.getId())
+                        .eq(Orders::getFundsSource, Orders.FUNDS_WECHAT)
                         .eq(Orders::getUserId, expected.getUserId())
                         .eq(Orders::getStatus, expected.getStatus())
                         .eq(Orders::getPayStatus, expected.getPayStatus())
@@ -101,19 +108,8 @@ public class RefundRecordTxService {
      * 2. 在恢复流程调用时，开启并完成自己的短事务。
      */
     @Transactional(rollbackFor = Exception.class)
-    public RefundRecord prepare(String orderNumber) {
-
-        Orders order = ordersMapper.selectByNumberForUpdate(orderNumber);
-
-        if (order == null
-                || !Orders.CANCELLED.equals(order.getStatus())
-                || !Orders.REFUNDING.equals(order.getPayStatus())) {
-            return null;
-        }
-
-        checkOrder(order);
-
-        return ensureRecord(order);
+    public void prepare(String orderNumber) {
+        pendingRecordForUpdate(orderNumber);
     }
 
     /**
@@ -150,9 +146,9 @@ public class RefundRecordTxService {
                 result.getOutRefundNo()
         )
                 || !Objects.equals(
-                        order.getTransactionId(),
-                        result.getTransactionId()
-                )
+                order.getTransactionId(),
+                result.getTransactionId()
+        )
                 || !"CNY".equals(result.getAmount().getCurrency())
                 || !Objects.equals(amount, result.getAmount().getTotal())
                 || !Objects.equals(amount, result.getAmount().getRefund())) {
@@ -165,9 +161,9 @@ public class RefundRecordTxService {
         if (record != null
                 && StrUtil.isNotBlank(record.getRefundId())
                 && !Objects.equals(
-                        record.getRefundId(),
-                        result.getRefundId()
-                )) {
+                record.getRefundId(),
+                result.getRefundId()
+        )) {
 
             throw new OrderBusinessException("微信退款单号不一致");
         }
@@ -191,7 +187,7 @@ public class RefundRecordTxService {
         change.setId(record.getId());
         change.setRefundId(result.getRefundId());
         change.setUpdateTime(now);
-        change.setNextRetryTime(now.plusMinutes(1));
+        LocalDateTime nextRetryTime = null;
         change.setLastError("");
 
         if (result.getStatus() == Status.SUCCESS) {
@@ -241,7 +237,16 @@ public class RefundRecordTxService {
                 return;
             }
 
-            change.setStatus(RefundRecord.PROCESSING);
+            if (record.getQueryCount() >= RecoveryPolicy.MAX_QUERIES) {
+                change.setStatus(RefundRecord.MANUAL);
+                change.setLastError("QUERY_LIMIT");
+            } else {
+                change.setStatus(RefundRecord.PROCESSING);
+                nextRetryTime = record.getNextRetryTime();
+                if (nextRetryTime == null || !nextRetryTime.isAfter(now)) {
+                    nextRetryTime = RecoveryPolicy.nextTime(now, Math.max(1, record.getQueryCount()));
+                }
+            }
 
         } else {
 
@@ -252,35 +257,31 @@ public class RefundRecordTxService {
             );
         }
 
-        if (refundRecordMapper.updateById(change) != 1) {
+        if (refundRecordMapper.update(change, Wrappers.<RefundRecord>lambdaUpdate()
+                .eq(RefundRecord::getId, record.getId())
+                .set(RefundRecord::getNextRetryTime, nextRetryTime)) != 1) {
             throw new OrderBusinessException("退款记录更新失败");
         }
     }
 
     /**
-     * 单条条件更新，不需要另外开启多表事务。
+     * 锁定订单后记录脱敏错误，不重置已保存的退避时间。
      * 不能覆盖已经成功或转人工处理的记录。
      */
+    @Transactional(rollbackFor = Exception.class)
     public void rememberError(String orderNumber, String error) {
-
-        LocalDateTime now = LocalDateTime.now().withNano(0);
-
-        refundRecordMapper.update(
-                null,
-                Wrappers.<RefundRecord>lambdaUpdate()
-                        .eq(RefundRecord::getOrderNumber, orderNumber)
-                        .in(
-                                RefundRecord::getStatus,
-                                RefundRecord.PENDING,
-                                RefundRecord.PROCESSING
-                        )
-                        .set(RefundRecord::getLastError, error)
-                        .set(RefundRecord::getUpdateTime, now)
-                        .set(
-                                RefundRecord::getNextRetryTime,
-                                now.plusMinutes(1)
-                        )
-        );
+        RefundRecord record = pendingRecordForUpdate(orderNumber);
+        if (record == null || RefundRecord.SUCCESS.equals(record.getStatus())
+                || RefundRecord.MANUAL.equals(record.getStatus())) return;
+        if (record.getQueryCount() >= RecoveryPolicy.MAX_QUERIES) {
+            manual(record, error);
+            return;
+        }
+        refundRecordMapper.update(null, Wrappers.<RefundRecord>lambdaUpdate()
+                .eq(RefundRecord::getId, record.getId())
+                .in(RefundRecord::getStatus, RefundRecord.PENDING, RefundRecord.PROCESSING)
+                .set(RefundRecord::getLastError, error)
+                .set(RefundRecord::getUpdateTime, LocalDateTime.now().withNano(0)));
     }
 
     /**
@@ -291,6 +292,7 @@ public class RefundRecordTxService {
 
         return refundRecordMapper.selectList(
                 Wrappers.<RefundRecord>lambdaQuery()
+                        .inSql(RefundRecord::getOrderId, "SELECT id FROM orders WHERE funds_source='WECHAT'")
                         .in(
                                 RefundRecord::getStatus,
                                 RefundRecord.PENDING,
@@ -313,6 +315,7 @@ public class RefundRecordTxService {
      * 仅返回公开提示，不将 lastError 原文暴露给客户端。
      */
     public void fillRefundInfo(OrderDetailVO order) {
+        if (!Orders.FUNDS_WECHAT.equals(order.getFundsSource())) return;
 
         RefundRecord record = findRecord(order);
 
@@ -342,17 +345,19 @@ public class RefundRecordTxService {
 
         if (record != null
                 && (!Objects.equals(
-                        record.getOrderNumber(),
-                        order.getNumber()
-                )
+                record.getOrderNumber(),
+                order.getNumber()
+        )
                 || !Objects.equals(
-                        record.getRefundNumber(),
-                        "RF" + order.getNumber()
-                )
+                record.getRefundNumber(),
+                "RF" + order.getNumber()
+        )
                 || record.getAmount() == null
                 || record.getAmount().compareTo(order.getAmount()) != 0
                 || record.getStatus() == null
-                || !List.of(0, 1, 2, 3).contains(record.getStatus()))) {
+                || !List.of(0, 1, 2, 3).contains(record.getStatus())
+                || record.getAttemptCount() == null || record.getAttemptCount() < 0
+                || record.getQueryCount() == null || record.getQueryCount() < 0)) {
 
             throw new OrderBusinessException("退款记录与订单不一致");
         }
@@ -380,6 +385,8 @@ public class RefundRecordTxService {
         record.setRefundNumber("RF" + order.getNumber());
         record.setAmount(order.getAmount());
         record.setStatus(RefundRecord.PENDING);
+        record.setAttemptCount(0);
+        record.setQueryCount(0);
         record.setNextRetryTime(now);
         record.setCreateTime(now);
         record.setUpdateTime(now);
@@ -395,6 +402,7 @@ public class RefundRecordTxService {
     private void checkOrder(Orders order) {
 
         if (order == null
+                || !Orders.FUNDS_WECHAT.equals(order.getFundsSource())
                 || !Orders.CANCELLED.equals(order.getStatus())
                 || (!Orders.REFUNDING.equals(order.getPayStatus())
                 && !Orders.REFUND.equals(order.getPayStatus()))
@@ -406,6 +414,14 @@ public class RefundRecordTxService {
         }
 
         toFen(order.getAmount());
+        PaymentRecord payment = paymentRecordMapper.selectOne(Wrappers.<PaymentRecord>lambdaQuery()
+                .eq(PaymentRecord::getOrderId, order.getId()));
+        if (payment == null || !PaymentRecord.SUCCESS.equals(payment.getStatus())
+                || !Objects.equals(order.getNumber(), payment.getPayNumber())
+                || !Objects.equals(order.getTransactionId(), payment.getTransactionId())
+                || payment.getAmount() == null || payment.getAmount().compareTo(order.getAmount()) != 0) {
+            throw new OrderBusinessException("缺少对应的成功支付记录，退款需人工核验");
+        }
     }
 
     private long toFen(BigDecimal amount) {
@@ -419,6 +435,77 @@ public class RefundRecordTxService {
             return amount.movePointRight(2).intValueExact();
         } catch (ArithmeticException e) {
             throw new OrderBusinessException("退款金额精度或范围无效");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public RefundRecord claimQuery(String number) {
+        RefundRecord record = pendingRecordForUpdate(number);
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        if (record == null || RefundRecord.SUCCESS.equals(record.getStatus())
+                || RefundRecord.MANUAL.equals(record.getStatus())
+                || record.getNextRetryTime() == null || record.getNextRetryTime().isAfter(now)) return null;
+        if (record.getQueryCount() >= RecoveryPolicy.MAX_QUERIES) {
+            manual(record, "QUERY_LIMIT");
+            return null;
+        }
+        int count = record.getQueryCount() + 1;
+        LocalDateTime next = RecoveryPolicy.nextTime(now, count);
+        if (refundRecordMapper.update(null, Wrappers.<RefundRecord>lambdaUpdate()
+                .eq(RefundRecord::getId, record.getId())
+                .in(RefundRecord::getStatus, RefundRecord.PENDING, RefundRecord.PROCESSING)
+                .set(RefundRecord::getQueryCount, count).set(RefundRecord::getNextRetryTime, next)
+                .set(RefundRecord::getUpdateTime, now)) != 1) {
+            throw new OrderBusinessException("退款查询计划更新失败");
+        }
+        record.setQueryCount(count);
+        record.setNextRetryTime(next);
+        return record;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public RefundRecord claimAttempt(String number, Integer expectedQueryCount) {
+        RefundRecord record = pendingRecordForUpdate(number);
+        if (record == null || RefundRecord.SUCCESS.equals(record.getStatus())
+                || RefundRecord.MANUAL.equals(record.getStatus())
+                || !Objects.equals(record.getQueryCount(), expectedQueryCount)) return null;
+        if (StrUtil.isNotBlank(record.getRefundId())) {
+            manual(record, "ACCEPTED_REFUND_NOT_FOUND");
+            return null;
+        }
+        if (record.getAttemptCount() >= RecoveryPolicy.MAX_REFUND_ATTEMPTS) {
+            manual(record, "ATTEMPT_LIMIT");
+            return null;
+        }
+        int count = record.getAttemptCount() + 1;
+        if (refundRecordMapper.update(null, Wrappers.<RefundRecord>lambdaUpdate()
+                .eq(RefundRecord::getId, record.getId())
+                .in(RefundRecord::getStatus, RefundRecord.PENDING, RefundRecord.PROCESSING)
+                .set(RefundRecord::getAttemptCount, count)
+                .set(RefundRecord::getUpdateTime, LocalDateTime.now().withNano(0))) != 1) {
+            throw new OrderBusinessException("退款申请次数更新失败");
+        }
+        record.setAttemptCount(count);
+        return record;
+    }
+
+    private RefundRecord pendingRecordForUpdate(String number) {
+        Orders order = ordersMapper.selectByNumberForUpdate(number);
+        if (order == null || !Orders.FUNDS_WECHAT.equals(order.getFundsSource())
+                || !Orders.CANCELLED.equals(order.getStatus())
+                || !Orders.REFUNDING.equals(order.getPayStatus())) return null;
+        checkOrder(order);
+        return ensureRecord(order);
+    }
+
+    private void manual(RefundRecord record, String error) {
+        if (refundRecordMapper.update(null, Wrappers.<RefundRecord>lambdaUpdate()
+                .eq(RefundRecord::getId, record.getId())
+                .in(RefundRecord::getStatus, RefundRecord.PENDING, RefundRecord.PROCESSING)
+                .set(RefundRecord::getStatus, RefundRecord.MANUAL)
+                .set(RefundRecord::getNextRetryTime, null).set(RefundRecord::getLastError, error)
+                .set(RefundRecord::getUpdateTime, LocalDateTime.now().withNano(0))) != 1) {
+            throw new OrderBusinessException("退款核查状态更新失败");
         }
     }
 }

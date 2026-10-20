@@ -1,6 +1,7 @@
 package com.dineflow.order.service;
 
 import com.dineflow.entity.RefundRecord;
+import com.dineflow.exception.OrderBusinessException;
 import com.dineflow.utils.WeChatPayUtil;
 import com.wechat.pay.java.core.exception.ServiceException;
 import com.wechat.pay.java.service.refund.model.Refund;
@@ -9,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+
+import java.util.Objects;
 
 @Service
 @Slf4j
@@ -32,7 +35,7 @@ public class RefundRecoveryService {
             }
 
             // 该方法通过另一个Bean完成短事务，返回后事务已经结束。
-            RefundRecord record = refundRecordTxService.prepare(orderNumber);
+            RefundRecord record = refundRecordTxService.claimQuery(orderNumber);
 
             if (record == null
                     || RefundRecord.SUCCESS.equals(record.getStatus())
@@ -56,29 +59,27 @@ public class RefundRecoveryService {
                 }
 
                 // 只有明确不存在才申请，始终复用原号和原金额。
+                RefundRecord attempt = refundRecordTxService.claimAttempt(orderNumber, record.getQueryCount());
+                if (attempt == null) return;
                 result = payUtil.refund(
-                        record.getOrderNumber(),
-                        record.getRefundNumber(),
-                        record.getAmount(),
-                        record.getAmount(),
+                        attempt.getOrderNumber(),
+                        attempt.getRefundNumber(),
+                        attempt.getAmount(),
+                        attempt.getAmount(),
                         "订单取消退款"
                 );
             }
 
+            if (result == null || !Objects.equals(record.getRefundNumber(), result.getOutRefundNo())
+                    || !Objects.equals(record.getOrderNumber(), result.getOutTradeNo())) {
+                throw new OrderBusinessException("退款查询结果关联错误");
+            }
             // SDK返回结果仍需通过本地业务校验。
             refundRecordTxService.applyResult(result);
 
         } catch (Exception e) {
 
-            // 只保存错误类型和受限的通道错误码，不保存原始响应。
-            String error = e.getClass().getSimpleName();
-
-            if (e instanceof ServiceException service
-                    && service.getErrorCode() != null
-                    && service.getErrorCode().matches("[A-Z0-9_]{1,64}")) {
-
-                error += ":" + service.getErrorCode();
-            }
+            String error = RecoveryPolicy.error(e);
 
             try {
                 refundRecordTxService.rememberError(orderNumber, error);

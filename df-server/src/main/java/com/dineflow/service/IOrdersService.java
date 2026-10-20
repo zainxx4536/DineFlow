@@ -30,7 +30,7 @@ public interface IOrdersService extends IService<Orders> {
     Orders paySuccess(Transaction transaction);
 
     /**
-     * 支付事务提交后，执行退款申请或来单提醒。
+     * 支付事务提交后发送首次有效来单提醒，或继续处理晚到支付退款。
      */
     void handlePaySuccessAfterCommit(Orders order);
 

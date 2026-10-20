@@ -15,6 +15,12 @@ public class PaymentRecord {
     public static final Integer PENDING = 0;
     // 已确认支付成功
     public static final Integer SUCCESS = 1;
+    public static final Integer CLOSED = 2;
+    public static final Integer MANUAL = 3;
+    private Integer queryCount;
+    private LocalDateTime nextQueryTime;
+    private String lastError;
+    private LocalDateTime updateTime;
     @TableId(type = IdType.AUTO)
     private Long id;
     // 订单ID
@@ -23,7 +29,7 @@ public class PaymentRecord {
     private String payNumber;
     // 本次支付金额，单位元
     private BigDecimal amount;
-    // 0待确认，1支付成功
+    // 0待确认，1支付成功，2支付关闭，3待人工核查
     private Integer status;
     // 微信支付交易号
     private String transactionId;

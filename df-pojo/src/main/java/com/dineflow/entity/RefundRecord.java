@@ -26,6 +26,8 @@ public class RefundRecord {
 
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Integer attemptCount;
+    private Integer queryCount;
 
     private Long orderId;
 

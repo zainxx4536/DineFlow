@@ -29,6 +29,12 @@ import java.math.RoundingMode;
         havingValue = "true"
 )
 public class WeChatPayUtil {
+    public Transaction queryPayment(String number) {
+        com.wechat.pay.java.service.payments.jsapi.model.QueryOrderByOutTradeNoRequest request = new com.wechat.pay.java.service.payments.jsapi.model.QueryOrderByOutTradeNoRequest();
+        request.setMchid(weChatProperties.getMchid());
+        request.setOutTradeNo(number);
+        return jsapiService.queryOrderByOutTradeNo(request);
+    }
 
     private final JsapiServiceExtension jsapiService;
 

@@ -73,7 +73,8 @@ public class PayNotifyController {
 
             /*
              * 第二阶段：事务外处理。
-             * 晚到支付申请退款，正常支付发送来单提醒。
+             * 晚到支付继续查询或申请退款。
+             * 首次正常支付发送来单提醒，晚到支付不发送来单提醒。
              */
             ordersService.handlePaySuccessAfterCommit(paidOrder);
             return ResponseEntity.ok().build();
